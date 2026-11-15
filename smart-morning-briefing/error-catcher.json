@@ -1,0 +1,65 @@
+{
+  "name": "error-catcher",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "3933f8ec-e6b4-4a4b-b5ac-7548459f8de2",
+      "name": "Catch Error"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_CHAT_ID}}",
+        "text": "=⚠️ ERROR DETECTED! ⚠️\nWorkflow: {{$json.workflow.name}}\nError Message: {{$json.execution.error.message}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "60ae3aeb-88ec-4a91-bab5-87596eb0195b",
+      "name": "Send Telegram Message",
+      "webhookId": "c876b520-0cf2-4992-a799-ded9ecd60f93",
+      "credentials": {
+        "telegramApi": {
+          "id": "Hu9CqZPnrJLPbSoj",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Catch Error": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "b147d1f6-af93-4db9-a054-040e5de3ebf0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ff9e0002d30cfc31e6c2d51c44a97d39fa09a3b4567619b78adf76e7f4ecfc3f"
+  },
+  "nodeGroups": [],
+  "id": "ee61BHBuxOdl5UOD",
+  "tags": []
+}

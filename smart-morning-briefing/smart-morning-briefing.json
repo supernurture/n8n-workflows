@@ -1,0 +1,392 @@
+{
+  "name": "smart-morning-briefing",
+  "nodes": [
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b328349e-3161-48d6-ac5a-9fe09fb38d28",
+              "name": "quote",
+              "value": "Stay focused on progress, not perfection.",
+              "type": "string"
+            },
+            {
+              "id": "fb24d155-5b1a-4785-bfe2-ef73bf22090b",
+              "name": "author",
+              "value": "System",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        432,
+        -96
+      ],
+      "id": "b0539a4b-1b78-4733-a394-dfba2f7f5009",
+      "name": "Fallback Quote"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 14
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "7d21b151-757b-4420-a95e-d60b7c5dd9e3",
+      "name": "Schedule Trigger 8AM"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        768,
+        -64
+      ],
+      "id": "c73fab60-e214-4b7f-bdfe-7b28a6d38631",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const data = $input.item.json;\n\nconst quote  = data.quote;\nconst author = data.author;\nconst temp = data.current_weather?.temperature ?? \"N/A\";\nconst wind = data.current_weather?.windspeed ?? \"N/A\";\n\nlet weatherStatus = \"Cool / Cloudy ⛅\";\nif (typeof temp === \"number\") {\n  if (temp >= 31) weatherStatus = \"Scorching Heat ☀️\";\n  else if (temp < 25) weatherStatus = \"Cold / Rain 🌧️\";\n}\n\nconst bodyText = `🌤️ *Weather:* ${temp}°C (${weatherStatus}, Wind ${wind} km/h)\\n\\n💬 *\"${quote}\"*\\n— _${author}_`;\n\nreturn {\n  json: {\n    bodyText: bodyText,\n    charCount: bodyText.length\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -64
+      ],
+      "id": "a5f9c10c-6753-412d-bcc6-9e3fd431bdd2",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n    \"latitude\": 0,\n    \"longitude\": 0,\n    \"generationtime_ms\": 0,\n    \"utc_offset_seconds\": 0,\n    \"timezone\": \"UNKNOWN\",\n    \"timezone_abbreviation\": \"UNKNOWN\",\n    \"elevation\": 0,\n    \"current_weather_units\": {\n      \"time\": \"UNKNOWN\",\n      \"interval\": \"UNKNOWN\",\n      \"temperature\": \"UNKNOWN\",\n      \"windspeed\": \"UNKNOWN\",\n      \"winddirection\": \"UNKNOWN\",\n      \"is_day\": \"UNKNOWN\",\n      \"weathercode\": \"UNKNOWN\"\n    },\n    \"current_weather\": {\n      \"time\": \"UNKNOWN\",\n      \"interval\": 0,\n      \"temperature\": 0,\n      \"windspeed\": 0,\n      \"winddirection\": 0,\n      \"is_day\": 0,\n      \"weathercode\": 0\n    }\n  }",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        432,
+        160
+      ],
+      "id": "207877ef-3761-4989-a431-976a6d68a218",
+      "name": "Fallback Jakarta's Weather"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.QUOTE_ENDPOINT }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        -192
+      ],
+      "id": "70af84da-543d-4937-9771-f8f0e9711998",
+      "name": "[GET] Fetch Random Quote",
+      "retryOnFail": true,
+      "waitBetweenTries": 2000,
+      "maxTries": 3,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.WEATHER_ENDPOINT }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        112
+      ],
+      "id": "3b71fbb1-bffe-4c9e-9b77-c69151a1ba2d",
+      "name": "[GET] Fetch Jakarta's Weather",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "6b9a18f8-0589-45f0-b419-3dc4e8e5f51b",
+              "leftValue": "={{ $json.charCount }}",
+              "rightValue": 180,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1136,
+        -64
+      ],
+      "id": "d5567366-96ba-4bd9-91ca-db383d0366a9",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "11ae0616-2443-4149-b768-f03333085af6",
+              "name": "=finalMessage",
+              "value": "=📜 *DEEP READING THIS MORNING*\\n\\n{{$json.bodyText}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1424,
+        -128
+      ],
+      "id": "9d71f205-acd9-44f9-ae5c-4fe683637432",
+      "name": "Deep Reading"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f595cc36-671a-4061-9ff9-0ada6ad85cd5",
+              "name": "=finalMessage",
+              "value": "=⚡ *QUICK BRIEFING THIS MORNING*\\n\\n{{$json.bodyText}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1424,
+        48
+      ],
+      "id": "d6d8c913-3f0b-48eb-9682-6094cd35ec95",
+      "name": "Quick Reading"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$env.TELEGRAM_CHAT_ID}}",
+        "text": "={{ $json.finalMessage }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        -64
+      ],
+      "id": "bfa3f7b1-13d3-47e7-912f-02cba559d1d6",
+      "name": "Send Telegram Message",
+      "webhookId": "aed2e1b5-a1d8-4a85-8b31-dc6773a50028",
+      "credentials": {
+        "telegramApi": {
+          "id": "Hu9CqZPnrJLPbSoj",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger 8AM": {
+      "main": [
+        [
+          {
+            "node": "[GET] Fetch Random Quote",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "[GET] Fetch Jakarta's Weather",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback Quote": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback Jakarta's Weather": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "[GET] Fetch Random Quote": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback Quote",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "[GET] Fetch Jakarta's Weather": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Fallback Jakarta's Weather",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Deep Reading",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Quick Reading",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deep Reading": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quick Reading": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "ee61BHBuxOdl5UOD"
+  },
+  "versionId": "ece102d7-dd6c-422e-9261-6842299bc767",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ff9e0002d30cfc31e6c2d51c44a97d39fa09a3b4567619b78adf76e7f4ecfc3f"
+  },
+  "nodeGroups": [],
+  "id": "gDERYkGL9F978Jz2",
+  "tags": []
+}
