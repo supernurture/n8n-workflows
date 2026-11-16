@@ -1,10 +1,10 @@
 [
   {
-    "updatedAt": "2026-11-16T14:55:55.951Z",
+    "updatedAt": "2026-11-16T15:50:23.276Z",
     "createdAt": "2026-11-10T16:02:19.990Z",
     "id": "gDERYkGL9F978Jz2",
-    "name": "smart-morning-briefing",
-    "description": null,
+    "name": "Send morning briefing to Telegram",
+    "description": "Sends a daily 08:00 WIB Telegram briefing with Jakarta weather (now + daily forecast) and a quote. Hourly catch-up plus a briefing_log guard covers n8n downtime without duplicate sends.",
     "active": true,
     "isArchived": false,
     "nodes": [
@@ -37,7 +37,7 @@
         "type": "n8n-nodes-base.merge",
         "typeVersion": 3.2,
         "position": [
-          480,
+          704,
           32
         ],
         "id": "c73fab60-e214-4b7f-bdfe-7b28a6d38631",
@@ -45,12 +45,13 @@
       },
       {
         "parameters": {
-          "jsCode": "// Build Briefing — validates API payloads, applies fallbacks, and renders a Telegram-safe HTML message.\n// Runs once for all items; reads both sources by node name so it is independent of merge order.\nconst TZ = 'Asia/Jakarta';\nconst SCHEDULED_HOUR = 8;\nconst QUOTE_NODE = '[GET] Fetch Random Quote';\nconst WEATHER_NODE = \"[GET] Fetch Jakarta's Weather\";\n\nconst now = $now.setZone(TZ);\nconst today = now.toFormat('yyyy-MM-dd');\nconst isProduction = $execution.mode === 'production';\nconst warnings = [];\n\nconst esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst isNum = (v) => typeof v === 'number' && Number.isFinite(v);\nconst clean = (s, max) => {\n  let t = String(s).replace(/\\s+/g, ' ').trim();\n  if (t.length > max) t = t.slice(0, max - 1).trimEnd() + '…';\n  return t;\n};\nconst fmt = (n) => (Math.round(n * 10) / 10).toString();\nconst sourceJson = (name) => {\n  try {\n    const item = $(name).first();\n    return item && item.json && typeof item.json === 'object' ? item.json : null;\n  } catch (e) {\n    return null;\n  }\n};\n\n// ---------- Quote ----------\nconst FALLBACK_QUOTES = [\n  { quote: 'Stay focused on progress, not perfection.', author: 'Unknown' },\n  { quote: 'The secret of getting ahead is getting started.', author: 'Mark Twain' },\n  { quote: 'Well done is better than well said.', author: 'Benjamin Franklin' },\n  { quote: 'It always seems impossible until it is done.', author: 'Nelson Mandela' },\n  { quote: 'Small deeds done are better than great deeds planned.', author: 'Peter Marshall' },\n];\nconst q = sourceJson(QUOTE_NODE);\nconst qText = q && typeof q.quote === 'string' ? q.quote.trim() : '';\nconst qAuthor = q && typeof q.author === 'string' ? q.author.trim() : '';\nlet quote;\nlet author;\nlet quoteSource = 'api';\nif (!q || q.error || qText.length < 3) {\n  const fb = FALLBACK_QUOTES[now.ordinal % FALLBACK_QUOTES.length];\n  quote = fb.quote;\n  author = fb.author;\n  quoteSource = 'fallback';\n  warnings.push(!q ? 'quote_missing' : q.error ? 'quote_api_error' : 'quote_invalid_payload');\n} else {\n  quote = clean(qText, 500);\n  author = qAuthor ? clean(qAuthor, 100) : 'Unknown';\n}\n\n// ---------- Weather (WMO weather codes) ----------\nconst WMO = {\n  0: ['Clear sky', '☀️'], 1: ['Mainly clear', '🌤️'], 2: ['Partly cloudy', '⛅'], 3: ['Overcast', '☁️'],\n  45: ['Fog', '🌫️'], 48: ['Rime fog', '🌫️'],\n  51: ['Light drizzle', '🌦️'], 53: ['Drizzle', '🌦️'], 55: ['Heavy drizzle', '🌧️'],\n  56: ['Freezing drizzle', '🌧️'], 57: ['Freezing drizzle', '🌧️'],\n  61: ['Light rain', '🌦️'], 63: ['Rain', '🌧️'], 65: ['Heavy rain', '🌧️'],\n  66: ['Freezing rain', '🌧️'], 67: ['Freezing rain', '🌧️'],\n  71: ['Light snow', '🌨️'], 73: ['Snow', '🌨️'], 75: ['Heavy snow', '❄️'], 77: ['Snow grains', '🌨️'],\n  80: ['Light showers', '🌦️'], 81: ['Showers', '🌧️'], 82: ['Violent showers', '⛈️'],\n  85: ['Snow showers', '🌨️'], 86: ['Heavy snow showers', '🌨️'],\n  95: ['Thunderstorm', '⛈️'], 96: ['Thunderstorm with hail', '⛈️'], 99: ['Thunderstorm with heavy hail', '⛈️'],\n};\nconst describe = (code) => WMO[code] || ['Conditions unknown', '🌡️'];\nconst RAINY = new Set([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]);\n\nconst w = sourceJson(WEATHER_NODE);\nconst cw = w && w.current_weather && typeof w.current_weather === 'object' ? w.current_weather : null;\nconst weatherLines = [];\nlet weatherSource = 'api';\nlet umbrella = false;\n\nif (!w || w.error || !cw || !isNum(cw.temperature)) {\n  weatherSource = 'unavailable';\n  warnings.push(!w ? 'weather_missing' : w.error ? 'weather_api_error' : 'weather_invalid_payload');\n  weatherLines.push('🌡️ <b>Weather:</b> data unavailable right now. Check a weather app before heading out.');\n} else {\n  const [label, icon] = describe(cw.weathercode);\n  const t = cw.temperature;\n  const feel = t >= 33 ? ' (very hot, stay hydrated)' : t >= 31 ? ' (hot)' : t < 24 ? ' (cool)' : '';\n  const wind = isNum(cw.windspeed) ? `, wind ${fmt(cw.windspeed)} km/h` : '';\n  weatherLines.push(`${icon} <b>Now:</b> ${fmt(t)}°C${feel}, ${esc(label)}${wind}`);\n  if (RAINY.has(cw.weathercode)) umbrella = true;\n\n  // Stale reading check (Open-Meteo returns local time when timezone param is set)\n  if (typeof cw.time === 'string') {\n    const obs = DateTime.fromISO(cw.time, { zone: TZ });\n    if (obs.isValid && now.diff(obs, 'hours').hours > 3) {\n      warnings.push('weather_stale');\n      weatherLines.push(`<i>(reading from ${obs.toFormat('HH:mm')}, may be outdated)</i>`);\n    }\n  }\n\n  const d = w.daily && typeof w.daily === 'object' ? w.daily : null;\n  const idx = d && Array.isArray(d.time) ? d.time.indexOf(today) : -1;\n  if (idx >= 0) {\n    const tmin = d.temperature_2m_min?.[idx];\n    const tmax = d.temperature_2m_max?.[idx];\n    const pop = d.precipitation_probability_max?.[idx];\n    const dcode = d.weathercode?.[idx] ?? d.weather_code?.[idx];\n    const parts = [];\n    if (isNum(tmin) && isNum(tmax)) parts.push(`${fmt(tmin)}–${fmt(tmax)}°C`);\n    if (isNum(dcode)) parts.push(esc(describe(dcode)[0]).toLowerCase());\n    if (isNum(pop)) parts.push(`rain chance ${Math.round(pop)}%`);\n    if (parts.length) weatherLines.push(`📅 <b>Today:</b> ${parts.join(', ')}`);\n    if ((isNum(pop) && pop >= 60) || (isNum(dcode) && RAINY.has(dcode))) umbrella = true;\n  } else {\n    warnings.push('weather_daily_missing');\n  }\n  if (umbrella) weatherLines.push('☔ Bring an umbrella.');\n}\n\n// ---------- Compose ----------\nconst isWeekend = now.weekday >= 6;\nconst isLate = isProduction && now.hour > SCHEDULED_HOUR;\nconst dateLabel = now.toFormat('cccc, d LLLL yyyy');\nconst header = isWeekend\n  ? `🌴 <b>WEEKEND BRIEFING</b>\\n${dateLabel}`\n  : `☀️ <b>MORNING BRIEFING</b>\\n${dateLabel}`;\n\nconst blocks = [header];\nif (isLate) blocks.push(`<i>⏰ Sent late at ${now.toFormat('HH:mm')} (scheduled ${String(SCHEDULED_HOUR).padStart(2, '0')}:00). The system was unavailable earlier.</i>`);\nblocks.push(weatherLines.join('\\n'));\nblocks.push(`💬 <i>\"${esc(quote)}\"</i>\\n— ${esc(author)}`);\nif (quoteSource === 'fallback' || weatherSource !== 'api') blocks.push('<i>ℹ️ Some data sources were unavailable; fallback content was used.</i>');\n\nlet text = blocks.join('\\n\\n');\nif (text.length > 4000) text = text.slice(0, 3990) + '…'; // Telegram limit is 4096\n\nreturn [{\n  json: {\n    text,\n    date: today,\n    mode: isProduction ? 'production' : 'manual',\n    quote_source: quoteSource,\n    weather_source: weatherSource,\n    is_late: isLate,\n    warnings: warnings.join(','),\n  },\n}];\n"
+          "jsCode": "// Build Briefing — validates API payloads, applies fallbacks, and renders a Telegram-safe HTML message.\n// Runs once for all items; reads both sources by node name so it is independent of merge order.\nconst TZ = 'Asia/Jakarta';\nconst SCHEDULED_HOUR = 8;\nconst QUOTE_NODE = '[GET] Fetch Random Quote';\nconst WEATHER_NODE = \"[GET] Fetch Jakarta's Weather\";\n\nconst now = $now.setZone(TZ);\nconst today = now.toFormat('yyyy-MM-dd');\nconst isProduction = $execution.mode === 'production';\nconst warnings = [];\n\nconst esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst isNum = (v) => typeof v === 'number' && Number.isFinite(v);\nconst clean = (s, max) => {\n  let t = String(s).replace(/\\s+/g, ' ').trim();\n  if (t.length > max) t = t.slice(0, max - 1).trimEnd() + '…';\n  return t;\n};\nconst fmt = (n) => (Math.round(n * 10) / 10).toString();\nconst sourceJson = (name) => {\n  try {\n    const item = $(name).first();\n    return item && item.json && typeof item.json === 'object' ? item.json : null;\n  } catch (e) {\n    return null;\n  }\n};\n\n// ---------- Quote ----------\nconst FALLBACK_QUOTES = [\n  { quote: 'Stay focused on progress, not perfection.', author: 'Unknown' },\n  { quote: 'The secret of getting ahead is getting started.', author: 'Mark Twain' },\n  { quote: 'Well done is better than well said.', author: 'Benjamin Franklin' },\n  { quote: 'It always seems impossible until it is done.', author: 'Nelson Mandela' },\n  { quote: 'Small deeds done are better than great deeds planned.', author: 'Peter Marshall' },\n];\nconst q = sourceJson(QUOTE_NODE);\nconst qText = q && typeof q.quote === 'string' ? q.quote.trim() : '';\nconst qAuthor = q && typeof q.author === 'string' ? q.author.trim() : '';\nlet quote;\nlet author;\nlet quoteSource = 'api';\nif (!q || q.error || qText.length < 3) {\n  const fb = FALLBACK_QUOTES[now.ordinal % FALLBACK_QUOTES.length];\n  quote = fb.quote;\n  author = fb.author;\n  quoteSource = 'fallback';\n  warnings.push(!q ? 'quote_missing' : q.error ? 'quote_api_error' : 'quote_invalid_payload');\n} else {\n  quote = clean(qText, 500);\n  author = qAuthor ? clean(qAuthor, 100) : 'Unknown';\n}\n\n// ---------- Weather (WMO weather codes) ----------\nconst WMO = {\n  0: ['Clear sky', '☀️'], 1: ['Mainly clear', '🌤️'], 2: ['Partly cloudy', '⛅'], 3: ['Overcast', '☁️'],\n  45: ['Fog', '🌫️'], 48: ['Rime fog', '🌫️'],\n  51: ['Light drizzle', '🌦️'], 53: ['Drizzle', '🌦️'], 55: ['Heavy drizzle', '🌧️'],\n  56: ['Freezing drizzle', '🌧️'], 57: ['Freezing drizzle', '🌧️'],\n  61: ['Light rain', '🌦️'], 63: ['Rain', '🌧️'], 65: ['Heavy rain', '🌧️'],\n  66: ['Freezing rain', '🌧️'], 67: ['Freezing rain', '🌧️'],\n  71: ['Light snow', '🌨️'], 73: ['Snow', '🌨️'], 75: ['Heavy snow', '❄️'], 77: ['Snow grains', '🌨️'],\n  80: ['Light showers', '🌦️'], 81: ['Showers', '🌧️'], 82: ['Violent showers', '⛈️'],\n  85: ['Snow showers', '🌨️'], 86: ['Heavy snow showers', '🌨️'],\n  95: ['Thunderstorm', '⛈️'], 96: ['Thunderstorm with hail', '⛈️'], 99: ['Thunderstorm with heavy hail', '⛈️'],\n};\nconst describe = (code) => WMO[code] || ['Conditions unknown', '🌡️'];\nconst RAINY = new Set([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]);\n\nconst w = sourceJson(WEATHER_NODE);\nconst cw = w && w.current_weather && typeof w.current_weather === 'object' ? w.current_weather : null;\nconst weatherLines = [];\nlet weatherSource = 'api';\nlet umbrella = false;\n\nif (!w || w.error || !cw || !isNum(cw.temperature)) {\n  weatherSource = 'unavailable';\n  warnings.push(!w ? 'weather_missing' : w.error ? 'weather_api_error' : 'weather_invalid_payload');\n  weatherLines.push('🌡️ <b>Weather:</b> data unavailable right now. Check a weather app before heading out.');\n} else {\n  const [label, icon] = describe(cw.weathercode);\n  const t = cw.temperature;\n  const feel = t >= 33 ? ' (very hot, stay hydrated)' : t >= 31 ? ' (hot)' : t < 24 ? ' (cool)' : '';\n  const wind = isNum(cw.windspeed) ? `, wind ${fmt(cw.windspeed)} km/h` : '';\n  weatherLines.push(`${icon} <b>Now:</b> ${fmt(t)}°C${feel}, ${esc(label)}${wind}`);\n  if (RAINY.has(cw.weathercode)) umbrella = true;\n\n  // Stale reading check (Open-Meteo returns local time when timezone param is set)\n  if (typeof cw.time === 'string') {\n    const obs = DateTime.fromISO(cw.time, { zone: TZ });\n    if (obs.isValid && now.diff(obs, 'hours').hours > 3) {\n      warnings.push('weather_stale');\n      weatherLines.push(`<i>(reading from ${obs.toFormat('HH:mm')}, may be outdated)</i>`);\n    }\n  }\n\n  const d = w.daily && typeof w.daily === 'object' ? w.daily : null;\n  const idx = d && Array.isArray(d.time) ? d.time.indexOf(today) : -1;\n  if (idx >= 0) {\n    const tmin = d.temperature_2m_min?.[idx];\n    const tmax = d.temperature_2m_max?.[idx];\n    const pop = d.precipitation_probability_max?.[idx];\n    const dcode = d.weathercode?.[idx] ?? d.weather_code?.[idx];\n    const parts = [];\n    if (isNum(tmin) && isNum(tmax)) parts.push(`${fmt(tmin)}–${fmt(tmax)}°C`);\n    if (isNum(dcode)) parts.push(esc(describe(dcode)[0]).toLowerCase());\n    if (isNum(pop)) parts.push(`rain chance ${Math.round(pop)}%`);\n    if (parts.length) weatherLines.push(`📅 <b>Today:</b> ${parts.join(', ')}`);\n    if ((isNum(pop) && pop >= 60) || (isNum(dcode) && RAINY.has(dcode))) umbrella = true;\n  } else {\n    warnings.push('weather_daily_missing');\n  }\n  if (umbrella) weatherLines.push('☔ Bring an umbrella.');\n}\n\n// ---------- Compose ----------\nconst isWeekend = now.weekday >= 6;\nconst isLate = isProduction && now.hour > SCHEDULED_HOUR;\nconst dateLabel = now.toFormat('cccc, d LLLL yyyy');\nconst header = isWeekend\n  ? `🌴 <b>WEEKEND BRIEFING</b>\\n${dateLabel}`\n  : `☀️ <b>MORNING BRIEFING</b>\\n${dateLabel}`;\n\nconst blocks = [header];\nif (isLate) blocks.push(`<i>⏰ Sent late at ${now.toFormat('HH:mm')} (scheduled ${String(SCHEDULED_HOUR).padStart(2, '0')}:00). The system was unavailable earlier.</i>`);\nblocks.push(weatherLines.join('\\n'));\nblocks.push(`💬 <i>\"${esc(quote)}\"</i>\\n— ${esc(author)}`);\nif (quoteSource === 'fallback' || weatherSource !== 'api') blocks.push('<i>ℹ️ Some data sources were unavailable; fallback content was used.</i>');\n\nlet text = blocks.join('\\n\\n');\nif (text.length > 4000) text = text.slice(0, 3990) + '…'; // Telegram limit is 4096\n\nreturn [{\n  json: {\n    text,\n    date: today,\n    mode: isProduction ? 'production' : 'manual',\n    quote_source: quoteSource,\n    weather_source: weatherSource,\n    is_late: isLate,\n    warnings: warnings.join(','),\n  },\n}];\n",
+          "notes": "Why Code: validation + fallback selection + WMO lookup + HTML escaping across two sources is multi-step logic; native Edit Fields would need many brittle expressions."
         },
         "type": "n8n-nodes-base.code",
         "typeVersion": 2,
         "position": [
-          704,
+          928,
           32
         ],
         "id": "a5f9c10c-6753-412d-bcc6-9e3fd431bdd2",
@@ -58,7 +59,7 @@
       },
       {
         "parameters": {
-          "url": "={{ $env.QUOTE_ENDPOINT }}",
+          "url": "={{ $('Load Settings').first().json.quoteEndpoint }}",
           "options": {
             "timeout": 10000
           }
@@ -66,7 +67,7 @@
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.5,
         "position": [
-          224,
+          448,
           -64
         ],
         "id": "70af84da-543d-4937-9771-f8f0e9711998",
@@ -78,7 +79,7 @@
       },
       {
         "parameters": {
-          "url": "={{ $env.WEATHER_ENDPOINT }}",
+          "url": "={{ $('Load Settings').first().json.weatherEndpoint }}",
           "sendQuery": true,
           "queryParameters": {
             "parameters": [
@@ -103,7 +104,7 @@
         "type": "n8n-nodes-base.httpRequest",
         "typeVersion": 4.5,
         "position": [
-          224,
+          448,
           128
         ],
         "id": "3b71fbb1-bffe-4c9e-9b77-c69151a1ba2d",
@@ -115,7 +116,7 @@
       },
       {
         "parameters": {
-          "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+          "chatId": "={{ $('Load Settings').first().json.telegramChatId }}",
           "text": "={{ $json.text }}",
           "additionalFields": {
             "appendAttribution": false,
@@ -126,7 +127,7 @@
         "type": "n8n-nodes-base.telegram",
         "typeVersion": 1.2,
         "position": [
-          928,
+          1152,
           32
         ],
         "id": "bfa3f7b1-13d3-47e7-912f-02cba559d1d6",
@@ -170,7 +171,7 @@
         "type": "n8n-nodes-base.dataTable",
         "typeVersion": 1.1,
         "position": [
-          -256,
+          -32,
           0
         ],
         "retryOnFail": true,
@@ -209,7 +210,7 @@
         "type": "n8n-nodes-base.if",
         "typeVersion": 2.2,
         "position": [
-          -32,
+          192,
           0
         ],
         "notes": "Production runs skip if today's briefing was already sent. Manual runs always send."
@@ -221,7 +222,7 @@
         "type": "n8n-nodes-base.noOp",
         "typeVersion": 1,
         "position": [
-          224,
+          448,
           -224
         ]
       },
@@ -348,13 +349,39 @@
         "type": "n8n-nodes-base.dataTable",
         "typeVersion": 1.1,
         "position": [
-          1152,
+          1376,
           32
         ],
         "retryOnFail": true,
         "maxTries": 3,
         "waitBetweenTries": 2000,
         "notes": "Audit trail + idempotency marker for the catch-up schedule."
+      },
+      {
+        "id": "2f21c192-1e89-4bc9-8a9c-20d8275cf047",
+        "name": "Load Settings",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          -256,
+          0
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "Automation Settings"
+          },
+          "returnAll": false,
+          "limit": 1
+        },
+        "notes": "Reads chat ID + API endpoints from the Automation Settings table (replaces $env, which is blocked in nodes).",
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 2000,
+        "alwaysOutputData": true
       }
     ],
     "connections": {
@@ -380,17 +407,6 @@
             }
           ],
           []
-        ]
-      },
-      "Daily 08:00 WIB + Hourly Catch-up": {
-        "main": [
-          [
-            {
-              "node": "Check Today's Log",
-              "type": "main",
-              "index": 0
-            }
-          ]
         ]
       },
       "Check Today's Log": {
@@ -459,6 +475,28 @@
             }
           ]
         ]
+      },
+      "Daily 08:00 WIB + Hourly Catch-up": {
+        "main": [
+          [
+            {
+              "node": "Load Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Load Settings": {
+        "main": [
+          [
+            {
+              "node": "Check Today's Log",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
     "settings": {
@@ -514,7 +552,17 @@
     },
     "nodeGroups": [
       {
-        "id": "63f89aed-eaf8-40d4-b9e1-e873f5e763fa",
+        "id": "119f76ca-64a3-4e4a-bf10-54ba9f2ae88c",
+        "name": "Settings & idempotency guard",
+        "nodeIds": [
+          "2f21c192-1e89-4bc9-8a9c-20d8275cf047",
+          "f7a5a61a-d63f-435f-88ab-87d5c65a0fff",
+          "47d1c5b5-81e2-40a3-9386-be525dfd755b"
+        ],
+        "description": "Loads chat ID/endpoints from Automation Settings, then stops production runs if today's briefing is already in briefing_log"
+      },
+      {
+        "id": "0303ac44-23ad-40dc-98a0-1e5b142e83a2",
         "name": "Compose, deliver & log",
         "nodeIds": [
           "a5f9c10c-6753-412d-bcc6-9e3fd431bdd2",
@@ -525,15 +573,34 @@
       }
     ],
     "pinData": {},
-    "versionId": "cea872a3-7fa0-47f9-adcd-779f5b3934cb",
-    "activeVersionId": "cea872a3-7fa0-47f9-adcd-779f5b3934cb",
-    "versionCounter": 246,
+    "versionId": "3259b739-adb7-4a63-a73a-c3b2a034417f",
+    "activeVersionId": "3259b739-adb7-4a63-a73a-c3b2a034417f",
+    "versionCounter": 247,
     "triggerCount": 1,
     "sourceWorkflowId": null,
-    "tags": [],
+    "tags": [
+      {
+        "updatedAt": "2026-11-16T15:50:23.265Z",
+        "createdAt": "2026-11-16T15:50:23.265Z",
+        "id": "ccmZO7nsrBZhqxwY",
+        "name": "scheduled"
+      },
+      {
+        "updatedAt": "2026-11-16T15:50:23.261Z",
+        "createdAt": "2026-11-16T15:50:23.261Z",
+        "id": "ckSoRolTcFg1s9Oo",
+        "name": "telegram"
+      },
+      {
+        "updatedAt": "2026-11-16T15:50:23.257Z",
+        "createdAt": "2026-11-16T15:50:23.257Z",
+        "id": "shBHz8x33AgHHyBN",
+        "name": "briefing"
+      }
+    ],
     "versionMetadata": {
-      "name": "Reference data table by name (portable)",
-      "description": "Check Today's Log and Log Briefing Sent now reference briefing_log by name instead of instance-specific ID, so the exported JSON works on other n8n instances once the table exists."
+      "name": "Config from Automation Settings table; naming, tags, notes, groups",
+      "description": "Replace $env lookups (chat ID, endpoints) with a Load Settings data-table read so env access in nodes can be blocked. Review follow-ups: verb-first name, description, tags, Why Code note, settings/idempotency node group."
     }
   }
 ]
