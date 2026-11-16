@@ -1,65 +1,353 @@
-{
-  "name": "error-catcher",
-  "nodes": [
-    {
-      "parameters": {},
-      "type": "n8n-nodes-base.errorTrigger",
-      "typeVersion": 1,
-      "position": [
-        0,
-        0
-      ],
-      "id": "3933f8ec-e6b4-4a4b-b5ac-7548459f8de2",
-      "name": "Catch Error"
-    },
-    {
-      "parameters": {
-        "chatId": "={{$env.TELEGRAM_CHAT_ID}}",
-        "text": "=⚠️ ERROR DETECTED! ⚠️\nWorkflow: {{$json.workflow.name}}\nError Message: {{$json.execution.error.message}}",
-        "additionalFields": {}
+[
+  {
+    "updatedAt": "2026-11-16T14:08:59.037Z",
+    "createdAt": "2026-11-13T16:14:44.688Z",
+    "id": "ee61BHBuxOdl5UOD",
+    "name": "error-catcher",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.errorTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ],
+        "id": "3933f8ec-e6b4-4a4b-b5ac-7548459f8de2",
+        "name": "Catch Error"
       },
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        224,
-        0
-      ],
-      "id": "60ae3aeb-88ec-4a91-bab5-87596eb0195b",
-      "name": "Send Telegram Message",
-      "webhookId": "c876b520-0cf2-4992-a799-ded9ecd60f93",
-      "credentials": {
-        "telegramApi": {
-          "id": "Hu9CqZPnrJLPbSoj",
-          "name": "Telegram account"
+      {
+        "parameters": {
+          "resource": "message",
+          "operation": "sendMessage",
+          "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+          "text": "={{ $json.text }}",
+          "replyMarkup": "none",
+          "additionalFields": {
+            "appendAttribution": false,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": true
+          }
+        },
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          448,
+          0
+        ],
+        "id": "60ae3aeb-88ec-4a91-bab5-87596eb0195b",
+        "name": "Send Telegram Alert",
+        "webhookId": "c876b520-0cf2-4992-a799-ded9ecd60f93",
+        "credentials": {
+          "telegramApi": {
+            "id": "Hu9CqZPnrJLPbSoj",
+            "name": "Telegram account"
+          }
+        },
+        "onError": "continueRegularOutput",
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000
+      },
+      {
+        "id": "04e276f8-dc7b-4f01-9b05-fbb67ab86760",
+        "name": "Format Alert",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          224,
+          0
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "jsCode": "// Format Alert — normalises both Error Trigger payload shapes (execution error vs trigger error)\n// into one record, and renders a Telegram-safe HTML alert.\nconst TZ = 'Asia/Jakarta';\nconst MAX_MSG = 500; // pre-escape limit; worst-case escaping keeps the alert under Telegram's 4096 chars\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst clip = (s, max) => {\n  const t = String(s ?? '').trim();\n  return t.length > max ? t.slice(0, max - 1) + '…' : t;\n};\n\nconst data = $input.first().json || {};\nconst wf = data.workflow || {};\nconst exec = data.execution || null;\nconst trig = data.trigger || null;\n\nconst isTriggerError = !exec && !!trig;\nconst err = (exec && exec.error) || (trig && trig.error) || {};\nconst message = clip(err.message || err.description || 'Unknown error (no message provided)', MAX_MSG);\nconst description = err.description && err.description !== err.message ? clip(err.description, 150) : '';\nconst failedNode = (exec && (exec.lastNodeExecuted || err.node?.name)) || err.node?.name || (isTriggerError ? 'Trigger' : 'unknown');\nconst errorType = err.name || (isTriggerError ? 'TriggerError' : 'ExecutionError');\nconst mode = (exec && exec.mode) || (trig && trig.mode) || 'unknown';\nconst executionId = exec && exec.id != null ? String(exec.id) : '';\nconst executionUrl = (exec && exec.url) || '';\nconst retryOf = exec && exec.retryOf ? String(exec.retryOf) : '';\n\nconst ts = err.timestamp ? DateTime.fromMillis(Number(err.timestamp)).setZone(TZ) : $now.setZone(TZ);\nconst when = (ts.isValid ? ts : $now.setZone(TZ)).toFormat('yyyy-MM-dd HH:mm:ss') + ' WIB';\n\nconst lines = [\n  `🚨 <b>WORKFLOW FAILED</b>${isTriggerError ? ' (trigger)' : ''}`,\n  '',\n  `<b>Workflow:</b> ${esc(wf.name || 'unknown')} <code>${esc(wf.id || '-')}</code>`,\n  `<b>Failed node:</b> ${esc(failedNode)}`,\n  `<b>Error:</b> ${esc(errorType)}`,\n  `<b>Message:</b> ${esc(message)}`,\n];\nif (description) lines.push(`<b>Details:</b> ${esc(description)}`);\nlines.push(`<b>Mode:</b> ${esc(mode)}`);\nlines.push(`<b>Time:</b> ${esc(when)}`);\nif (executionId) lines.push(`<b>Execution:</b> <code>${esc(executionId)}</code>${retryOf ? ` (retry of ${esc(retryOf)})` : ''}`);\nif (executionUrl) lines.push(`<a href=\"${esc(executionUrl)}\">Open execution</a>`);\n\nreturn [{\n  json: {\n    text: lines.join('\\n'),\n    occurred_at: (ts.isValid ? ts : $now).toISO(),\n    workflow_id: String(wf.id || ''),\n    workflow_name: String(wf.name || ''),\n    execution_id: executionId,\n    execution_url: executionUrl,\n    mode: String(mode),\n    failed_node: String(failedNode),\n    error_type: String(errorType),\n    error_message: message,\n  },\n}];\n"
+        }
+      },
+      {
+        "id": "abbc895e-26f6-48de-a485-436ef37b7219",
+        "name": "Log Error",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          672,
+          0
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "Md8fLK8gdD3f2L0u",
+            "cachedResultName": "error_log"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "occurred_at": "={{ $('Format Alert').first().json.occurred_at }}",
+              "workflow_id": "={{ $('Format Alert').first().json.workflow_id }}",
+              "workflow_name": "={{ $('Format Alert').first().json.workflow_name }}",
+              "execution_id": "={{ $('Format Alert').first().json.execution_id }}",
+              "execution_url": "={{ $('Format Alert').first().json.execution_url }}",
+              "mode": "={{ $('Format Alert').first().json.mode }}",
+              "failed_node": "={{ $('Format Alert').first().json.failed_node }}",
+              "error_type": "={{ $('Format Alert').first().json.error_type }}",
+              "error_message": "={{ $('Format Alert').first().json.error_message }}",
+              "alert_sent": "={{ $json.ok === true }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "occurred_at",
+                "displayName": "occurred_at",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "dateTime",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "workflow_id",
+                "displayName": "workflow_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "workflow_name",
+                "displayName": "workflow_name",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "execution_id",
+                "displayName": "execution_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "execution_url",
+                "displayName": "execution_url",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "mode",
+                "displayName": "mode",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "failed_node",
+                "displayName": "failed_node",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "error_type",
+                "displayName": "error_type",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "error_message",
+                "displayName": "error_message",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "alert_sent",
+                "displayName": "alert_sent",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "boolean",
+                "canBeUsedToMatch": true
+              }
+            ]
+          },
+          "options": {}
+        },
+        "notes": "Persistent record of every failure; works even when Telegram is down.",
+        "onError": "continueRegularOutput",
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 2000
+      },
+      {
+        "id": "01152978-c9ff-4308-8ffc-bc7365f586c6",
+        "name": "Alert Delivered?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          896,
+          0
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "loose",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "b2e0c3d5-2222-4c8f-8d22-6f1f00000002",
+                "leftValue": "={{ $('Send Telegram Alert').first().json.ok === true }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "21e8c68c-736c-4e99-a206-b1eaf8e4661a",
+        "name": "Done",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          1120,
+          -112
+        ],
+        "parameters": {}
+      },
+      {
+        "id": "34c9f2f5-0b20-46ce-96a8-1d4d948768df",
+        "name": "Fail: Alert Not Delivered",
+        "type": "n8n-nodes-base.stopAndError",
+        "typeVersion": 1,
+        "position": [
+          1120,
+          96
+        ],
+        "parameters": {
+          "errorMessage": "={{ 'Telegram alert could not be delivered for workflow \"' + $('Format Alert').first().json.workflow_name + '\" (execution ' + ($('Format Alert').first().json.execution_id || 'n/a, trigger error') + '). Error recorded in error_log.' }}"
         }
       }
-    }
-  ],
-  "pinData": {},
-  "connections": {
-    "Catch Error": {
-      "main": [
-        [
-          {
-            "node": "Send Telegram Message",
-            "type": "main",
-            "index": 0
-          }
+    ],
+    "connections": {
+      "Catch Error": {
+        "main": [
+          [
+            {
+              "node": "Format Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
         ]
-      ]
+      },
+      "Format Alert": {
+        "main": [
+          [
+            {
+              "node": "Send Telegram Alert",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Send Telegram Alert": {
+        "main": [
+          [
+            {
+              "node": "Log Error",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Log Error": {
+        "main": [
+          [
+            {
+              "node": "Alert Delivered?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Alert Delivered?": {
+        "main": [
+          [
+            {
+              "node": "Done",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Fail: Alert Not Delivered",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate",
+      "availableInMCP": true,
+      "timezone": "Asia/Jakarta",
+      "saveDataErrorExecution": "all",
+      "executionTimeout": 120
+    },
+    "staticData": null,
+    "meta": {
+      "templateCredsSetupCompleted": true,
+      "aiBuilderAssisted": true,
+      "builderVariant": "mcp"
+    },
+    "nodeGroups": [],
+    "pinData": {},
+    "versionId": "ee0e309a-4930-4c3a-a5f6-99e1b7b5910b",
+    "activeVersionId": "ee0e309a-4930-4c3a-a5f6-99e1b7b5910b",
+    "versionCounter": 17,
+    "triggerCount": 0,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "versionMetadata": {
+      "name": "Polish Stop-and-Error message for trigger errors",
+      "description": "Updated nodes: Fail: Alert Not Delivered"
     }
-  },
-  "active": true,
-  "settings": {
-    "executionOrder": "v1",
-    "binaryMode": "separate"
-  },
-  "versionId": "b147d1f6-af93-4db9-a054-040e5de3ebf0",
-  "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "ff9e0002d30cfc31e6c2d51c44a97d39fa09a3b4567619b78adf76e7f4ecfc3f"
-  },
-  "nodeGroups": [],
-  "id": "ee61BHBuxOdl5UOD",
-  "tags": []
-}
+  }
+]

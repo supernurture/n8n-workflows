@@ -1,14 +1,31 @@
 services:
   n8n:
-    image: docker.n8n.io/n8nio/n8n
+    # Pinned: upgrade deliberately (change tag, back up first, then `docker compose up -d`).
+    image: docker.n8n.io/n8nio/n8n:2.47.3
     container_name: n8n
     restart: unless-stopped
     ports:
       - "5678:5678"
     env_file:
       - .env
+    environment:
+      # Execution data retention: keep 14 days / max 10k executions so the DB doesn't grow unbounded.
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=336
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=10000
     volumes:
       - n8n_data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5678/healthz >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   n8n_data:

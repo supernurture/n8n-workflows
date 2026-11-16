@@ -1,392 +1,530 @@
-{
-  "name": "smart-morning-briefing",
-  "nodes": [
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "b328349e-3161-48d6-ac5a-9fe09fb38d28",
-              "name": "quote",
-              "value": "Stay focused on progress, not perfection.",
-              "type": "string"
-            },
-            {
-              "id": "fb24d155-5b1a-4785-bfe2-ef73bf22090b",
-              "name": "author",
-              "value": "System",
-              "type": "string"
-            }
-          ]
+[
+  {
+    "updatedAt": "2026-11-16T14:18:21.845Z",
+    "createdAt": "2026-11-10T16:02:19.990Z",
+    "id": "gDERYkGL9F978Jz2",
+    "name": "smart-morning-briefing",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "triggerAtHour": 8
+              },
+              {
+                "field": "cronExpression",
+                "expression": "0 9-20 * * *"
+              }
+            ]
+          },
+          "misfirePolicy": "coalesce"
         },
-        "options": {}
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.4,
+        "position": [
+          -480,
+          0
+        ],
+        "id": "7d21b151-757b-4420-a95e-d60b7c5dd9e3",
+        "name": "Daily 08:00 WIB + Hourly Catch-up"
       },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.5,
-      "position": [
-        432,
-        -96
-      ],
-      "id": "b0539a4b-1b78-4733-a394-dfba2f7f5009",
-      "name": "Fallback Quote"
-    },
-    {
-      "parameters": {
-        "rule": {
-          "interval": [
-            {
-              "triggerAtHour": 14
-            }
-          ]
+      {
+        "parameters": {},
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          480,
+          32
+        ],
+        "id": "c73fab60-e214-4b7f-bdfe-7b28a6d38631",
+        "name": "Wait for Both Sources"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Build Briefing — validates API payloads, applies fallbacks, and renders a Telegram-safe HTML message.\n// Runs once for all items; reads both sources by node name so it is independent of merge order.\nconst TZ = 'Asia/Jakarta';\nconst SCHEDULED_HOUR = 8;\nconst QUOTE_NODE = '[GET] Fetch Random Quote';\nconst WEATHER_NODE = \"[GET] Fetch Jakarta's Weather\";\n\nconst now = $now.setZone(TZ);\nconst today = now.toFormat('yyyy-MM-dd');\nconst isProduction = $execution.mode === 'production';\nconst warnings = [];\n\nconst esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst isNum = (v) => typeof v === 'number' && Number.isFinite(v);\nconst clean = (s, max) => {\n  let t = String(s).replace(/\\s+/g, ' ').trim();\n  if (t.length > max) t = t.slice(0, max - 1).trimEnd() + '…';\n  return t;\n};\nconst fmt = (n) => (Math.round(n * 10) / 10).toString();\nconst sourceJson = (name) => {\n  try {\n    const item = $(name).first();\n    return item && item.json && typeof item.json === 'object' ? item.json : null;\n  } catch (e) {\n    return null;\n  }\n};\n\n// ---------- Quote ----------\nconst FALLBACK_QUOTES = [\n  { quote: 'Stay focused on progress, not perfection.', author: 'Unknown' },\n  { quote: 'The secret of getting ahead is getting started.', author: 'Mark Twain' },\n  { quote: 'Well done is better than well said.', author: 'Benjamin Franklin' },\n  { quote: 'It always seems impossible until it is done.', author: 'Nelson Mandela' },\n  { quote: 'Small deeds done are better than great deeds planned.', author: 'Peter Marshall' },\n];\nconst q = sourceJson(QUOTE_NODE);\nconst qText = q && typeof q.quote === 'string' ? q.quote.trim() : '';\nconst qAuthor = q && typeof q.author === 'string' ? q.author.trim() : '';\nlet quote;\nlet author;\nlet quoteSource = 'api';\nif (!q || q.error || qText.length < 3) {\n  const fb = FALLBACK_QUOTES[now.ordinal % FALLBACK_QUOTES.length];\n  quote = fb.quote;\n  author = fb.author;\n  quoteSource = 'fallback';\n  warnings.push(!q ? 'quote_missing' : q.error ? 'quote_api_error' : 'quote_invalid_payload');\n} else {\n  quote = clean(qText, 500);\n  author = qAuthor ? clean(qAuthor, 100) : 'Unknown';\n}\n\n// ---------- Weather (WMO weather codes) ----------\nconst WMO = {\n  0: ['Clear sky', '☀️'], 1: ['Mainly clear', '🌤️'], 2: ['Partly cloudy', '⛅'], 3: ['Overcast', '☁️'],\n  45: ['Fog', '🌫️'], 48: ['Rime fog', '🌫️'],\n  51: ['Light drizzle', '🌦️'], 53: ['Drizzle', '🌦️'], 55: ['Heavy drizzle', '🌧️'],\n  56: ['Freezing drizzle', '🌧️'], 57: ['Freezing drizzle', '🌧️'],\n  61: ['Light rain', '🌦️'], 63: ['Rain', '🌧️'], 65: ['Heavy rain', '🌧️'],\n  66: ['Freezing rain', '🌧️'], 67: ['Freezing rain', '🌧️'],\n  71: ['Light snow', '🌨️'], 73: ['Snow', '🌨️'], 75: ['Heavy snow', '❄️'], 77: ['Snow grains', '🌨️'],\n  80: ['Light showers', '🌦️'], 81: ['Showers', '🌧️'], 82: ['Violent showers', '⛈️'],\n  85: ['Snow showers', '🌨️'], 86: ['Heavy snow showers', '🌨️'],\n  95: ['Thunderstorm', '⛈️'], 96: ['Thunderstorm with hail', '⛈️'], 99: ['Thunderstorm with heavy hail', '⛈️'],\n};\nconst describe = (code) => WMO[code] || ['Conditions unknown', '🌡️'];\nconst RAINY = new Set([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99]);\n\nconst w = sourceJson(WEATHER_NODE);\nconst cw = w && w.current_weather && typeof w.current_weather === 'object' ? w.current_weather : null;\nconst weatherLines = [];\nlet weatherSource = 'api';\nlet umbrella = false;\n\nif (!w || w.error || !cw || !isNum(cw.temperature)) {\n  weatherSource = 'unavailable';\n  warnings.push(!w ? 'weather_missing' : w.error ? 'weather_api_error' : 'weather_invalid_payload');\n  weatherLines.push('🌡️ <b>Weather:</b> data unavailable right now. Check a weather app before heading out.');\n} else {\n  const [label, icon] = describe(cw.weathercode);\n  const t = cw.temperature;\n  const feel = t >= 33 ? ' (very hot, stay hydrated)' : t >= 31 ? ' (hot)' : t < 24 ? ' (cool)' : '';\n  const wind = isNum(cw.windspeed) ? `, wind ${fmt(cw.windspeed)} km/h` : '';\n  weatherLines.push(`${icon} <b>Now:</b> ${fmt(t)}°C${feel}, ${esc(label)}${wind}`);\n  if (RAINY.has(cw.weathercode)) umbrella = true;\n\n  // Stale reading check (Open-Meteo returns local time when timezone param is set)\n  if (typeof cw.time === 'string') {\n    const obs = DateTime.fromISO(cw.time, { zone: TZ });\n    if (obs.isValid && now.diff(obs, 'hours').hours > 3) {\n      warnings.push('weather_stale');\n      weatherLines.push(`<i>(reading from ${obs.toFormat('HH:mm')}, may be outdated)</i>`);\n    }\n  }\n\n  const d = w.daily && typeof w.daily === 'object' ? w.daily : null;\n  const idx = d && Array.isArray(d.time) ? d.time.indexOf(today) : -1;\n  if (idx >= 0) {\n    const tmin = d.temperature_2m_min?.[idx];\n    const tmax = d.temperature_2m_max?.[idx];\n    const pop = d.precipitation_probability_max?.[idx];\n    const dcode = d.weathercode?.[idx] ?? d.weather_code?.[idx];\n    const parts = [];\n    if (isNum(tmin) && isNum(tmax)) parts.push(`${fmt(tmin)}–${fmt(tmax)}°C`);\n    if (isNum(dcode)) parts.push(esc(describe(dcode)[0]).toLowerCase());\n    if (isNum(pop)) parts.push(`rain chance ${Math.round(pop)}%`);\n    if (parts.length) weatherLines.push(`📅 <b>Today:</b> ${parts.join(', ')}`);\n    if ((isNum(pop) && pop >= 60) || (isNum(dcode) && RAINY.has(dcode))) umbrella = true;\n  } else {\n    warnings.push('weather_daily_missing');\n  }\n  if (umbrella) weatherLines.push('☔ Bring an umbrella.');\n}\n\n// ---------- Compose ----------\nconst isWeekend = now.weekday >= 6;\nconst isLate = isProduction && now.hour > SCHEDULED_HOUR;\nconst dateLabel = now.toFormat('cccc, d LLLL yyyy');\nconst header = isWeekend\n  ? `🌴 <b>WEEKEND BRIEFING</b>\\n${dateLabel}`\n  : `☀️ <b>MORNING BRIEFING</b>\\n${dateLabel}`;\n\nconst blocks = [header];\nif (isLate) blocks.push(`<i>⏰ Sent late at ${now.toFormat('HH:mm')} (scheduled ${String(SCHEDULED_HOUR).padStart(2, '0')}:00). The system was unavailable earlier.</i>`);\nblocks.push(weatherLines.join('\\n'));\nblocks.push(`💬 <i>\"${esc(quote)}\"</i>\\n— ${esc(author)}`);\nif (quoteSource === 'fallback' || weatherSource !== 'api') blocks.push('<i>ℹ️ Some data sources were unavailable; fallback content was used.</i>');\n\nlet text = blocks.join('\\n\\n');\nif (text.length > 4000) text = text.slice(0, 3990) + '…'; // Telegram limit is 4096\n\nreturn [{\n  json: {\n    text,\n    date: today,\n    mode: isProduction ? 'production' : 'manual',\n    quote_source: quoteSource,\n    weather_source: weatherSource,\n    is_late: isLate,\n    warnings: warnings.join(','),\n  },\n}];\n"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          704,
+          32
+        ],
+        "id": "a5f9c10c-6753-412d-bcc6-9e3fd431bdd2",
+        "name": "Build Briefing"
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.QUOTE_ENDPOINT }}",
+          "options": {
+            "timeout": 10000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          224,
+          -64
+        ],
+        "id": "70af84da-543d-4937-9771-f8f0e9711998",
+        "name": "[GET] Fetch Random Quote",
+        "retryOnFail": true,
+        "waitBetweenTries": 3000,
+        "maxTries": 3,
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "url": "={{ $env.WEATHER_ENDPOINT }}",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "timezone",
+                "value": "Asia/Jakarta"
+              },
+              {
+                "name": "daily",
+                "value": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode"
+              },
+              {
+                "name": "forecast_days",
+                "value": "1"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 10000
+          }
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          224,
+          128
+        ],
+        "id": "3b71fbb1-bffe-4c9e-9b77-c69151a1ba2d",
+        "name": "[GET] Fetch Jakarta's Weather",
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 3000,
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+          "text": "={{ $json.text }}",
+          "additionalFields": {
+            "appendAttribution": false,
+            "disable_web_page_preview": true,
+            "parse_mode": "HTML"
+          }
+        },
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          928,
+          32
+        ],
+        "id": "bfa3f7b1-13d3-47e7-912f-02cba559d1d6",
+        "name": "Send Telegram Message",
+        "webhookId": "aed2e1b5-a1d8-4a85-8b31-dc6773a50028",
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000,
+        "credentials": {
+          "telegramApi": {
+            "id": "Hu9CqZPnrJLPbSoj",
+            "name": "Telegram account"
+          }
         }
       },
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.4,
-      "position": [
-        0,
-        0
-      ],
-      "id": "7d21b151-757b-4420-a95e-d60b7c5dd9e3",
-      "name": "Schedule Trigger 8AM"
-    },
-    {
-      "parameters": {
-        "mode": "combine",
-        "combineBy": "combineByPosition",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 3.2,
-      "position": [
-        768,
-        -64
-      ],
-      "id": "c73fab60-e214-4b7f-bdfe-7b28a6d38631",
-      "name": "Merge"
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "const data = $input.item.json;\n\nconst quote  = data.quote;\nconst author = data.author;\nconst temp = data.current_weather?.temperature ?? \"N/A\";\nconst wind = data.current_weather?.windspeed ?? \"N/A\";\n\nlet weatherStatus = \"Cool / Cloudy ⛅\";\nif (typeof temp === \"number\") {\n  if (temp >= 31) weatherStatus = \"Scorching Heat ☀️\";\n  else if (temp < 25) weatherStatus = \"Cold / Rain 🌧️\";\n}\n\nconst bodyText = `🌤️ *Weather:* ${temp}°C (${weatherStatus}, Wind ${wind} km/h)\\n\\n💬 *\"${quote}\"*\\n— _${author}_`;\n\nreturn {\n  json: {\n    bodyText: bodyText,\n    charCount: bodyText.length\n  }\n};"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        960,
-        -64
-      ],
-      "id": "a5f9c10c-6753-412d-bcc6-9e3fd431bdd2",
-      "name": "Code in JavaScript"
-    },
-    {
-      "parameters": {
-        "mode": "raw",
-        "jsonOutput": "{\n    \"latitude\": 0,\n    \"longitude\": 0,\n    \"generationtime_ms\": 0,\n    \"utc_offset_seconds\": 0,\n    \"timezone\": \"UNKNOWN\",\n    \"timezone_abbreviation\": \"UNKNOWN\",\n    \"elevation\": 0,\n    \"current_weather_units\": {\n      \"time\": \"UNKNOWN\",\n      \"interval\": \"UNKNOWN\",\n      \"temperature\": \"UNKNOWN\",\n      \"windspeed\": \"UNKNOWN\",\n      \"winddirection\": \"UNKNOWN\",\n      \"is_day\": \"UNKNOWN\",\n      \"weathercode\": \"UNKNOWN\"\n    },\n    \"current_weather\": {\n      \"time\": \"UNKNOWN\",\n      \"interval\": 0,\n      \"temperature\": 0,\n      \"windspeed\": 0,\n      \"winddirection\": 0,\n      \"is_day\": 0,\n      \"weathercode\": 0\n    }\n  }",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.5,
-      "position": [
-        432,
-        160
-      ],
-      "id": "207877ef-3761-4989-a431-976a6d68a218",
-      "name": "Fallback Jakarta's Weather"
-    },
-    {
-      "parameters": {
-        "url": "={{ $env.QUOTE_ENDPOINT }}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.5,
-      "position": [
-        240,
-        -192
-      ],
-      "id": "70af84da-543d-4937-9771-f8f0e9711998",
-      "name": "[GET] Fetch Random Quote",
-      "retryOnFail": true,
-      "waitBetweenTries": 2000,
-      "maxTries": 3,
-      "onError": "continueErrorOutput"
-    },
-    {
-      "parameters": {
-        "url": "={{ $env.WEATHER_ENDPOINT }}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.5,
-      "position": [
-        224,
-        112
-      ],
-      "id": "3b71fbb1-bffe-4c9e-9b77-c69151a1ba2d",
-      "name": "[GET] Fetch Jakarta's Weather",
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 2000,
-      "onError": "continueErrorOutput"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 4
+      {
+        "parameters": {
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "Um4HKuGJXHizO10X",
+            "cachedResultName": "briefing_log"
           },
-          "conditions": [
-            {
-              "id": "6b9a18f8-0589-45f0-b419-3dc4e8e5f51b",
-              "leftValue": "={{ $json.charCount }}",
-              "rightValue": 180,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
+          "matchType": "allConditions",
+          "filters": {
+            "conditions": [
+              {
+                "keyName": "date",
+                "keyValue": "={{ $now.setZone('Asia/Jakarta').toFormat('yyyy-MM-dd') }}"
+              },
+              {
+                "keyName": "mode",
+                "keyValue": "production"
               }
+            ]
+          },
+          "limit": 1
+        },
+        "id": "f7a5a61a-d63f-435f-88ab-87d5c65a0fff",
+        "name": "Check Today's Log",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          -256,
+          0
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 2000,
+        "alwaysOutputData": true,
+        "notes": "Idempotency: finds a production send for today's date (WIB)."
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 2
+            },
+            "conditions": [
+              {
+                "id": "a1f0c2d4-1111-4b7e-9c11-5e0f00000001",
+                "leftValue": "={{ $execution.mode === 'production' && $json.id !== undefined }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "id": "47d1c5b5-81e2-40a3-9386-be525dfd755b",
+        "name": "Already Sent Today?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          -32,
+          0
+        ],
+        "notes": "Production runs skip if today's briefing was already sent. Manual runs always send."
+      },
+      {
+        "parameters": {},
+        "id": "ccb41783-1eb9-4139-85f5-4e6e146faf03",
+        "name": "Skip: Already Sent Today",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          224,
+          -224
+        ]
+      },
+      {
+        "parameters": {
+          "dataTableId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "Um4HKuGJXHizO10X",
+            "cachedResultName": "briefing_log"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "date": "={{ $('Build Briefing').first().json.date }}",
+              "mode": "={{ $('Build Briefing').first().json.mode }}",
+              "sent_at": "={{ $now.toISO() }}",
+              "quote_source": "={{ $('Build Briefing').first().json.quote_source }}",
+              "weather_source": "={{ $('Build Briefing').first().json.weather_source }}",
+              "is_late": "={{ $('Build Briefing').first().json.is_late }}",
+              "warnings": "={{ $('Build Briefing').first().json.warnings }}",
+              "message_id": "={{ $json.result?.message_id ?? null }}",
+              "execution_id": "={{ $execution.id }}"
+            },
+            "matchingColumns": [],
+            "schema": [
+              {
+                "id": "date",
+                "displayName": "date",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "mode",
+                "displayName": "mode",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "sent_at",
+                "displayName": "sent_at",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "dateTime",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "quote_source",
+                "displayName": "quote_source",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "weather_source",
+                "displayName": "weather_source",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "is_late",
+                "displayName": "is_late",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "boolean",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "warnings",
+                "displayName": "warnings",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "message_id",
+                "displayName": "message_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "number",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "execution_id",
+                "displayName": "execution_id",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "272eed7e-fb3c-4bc9-8215-67024c1dd3c4",
+        "name": "Log Briefing Sent",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          1152,
+          32
+        ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 2000,
+        "notes": "Audit trail + idempotency marker for the catch-up schedule."
+      }
+    ],
+    "connections": {
+      "[GET] Fetch Random Quote": {
+        "main": [
+          [
+            {
+              "node": "Wait for Both Sources",
+              "type": "main",
+              "index": 0
             }
           ],
-          "combinator": "and"
-        },
-        "options": {}
+          []
+        ]
       },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.4,
-      "position": [
-        1136,
-        -64
-      ],
-      "id": "d5567366-96ba-4bd9-91ca-db383d0366a9",
-      "name": "If"
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
+      "[GET] Fetch Jakarta's Weather": {
+        "main": [
+          [
             {
-              "id": "11ae0616-2443-4149-b768-f03333085af6",
-              "name": "=finalMessage",
-              "value": "=📜 *DEEP READING THIS MORNING*\\n\\n{{$json.bodyText}}",
-              "type": "string"
+              "node": "Wait for Both Sources",
+              "type": "main",
+              "index": 1
+            }
+          ],
+          []
+        ]
+      },
+      "Daily 08:00 WIB + Hourly Catch-up": {
+        "main": [
+          [
+            {
+              "node": "Check Today's Log",
+              "type": "main",
+              "index": 0
             }
           ]
-        },
-        "options": {}
+        ]
       },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.5,
-      "position": [
-        1424,
-        -128
-      ],
-      "id": "9d71f205-acd9-44f9-ae5c-4fe683637432",
-      "name": "Deep Reading"
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
+      "Check Today's Log": {
+        "main": [
+          [
             {
-              "id": "f595cc36-671a-4061-9ff9-0ada6ad85cd5",
-              "name": "=finalMessage",
-              "value": "=⚡ *QUICK BRIEFING THIS MORNING*\\n\\n{{$json.bodyText}}",
-              "type": "string"
+              "node": "Already Sent Today?",
+              "type": "main",
+              "index": 0
             }
           ]
-        },
-        "options": {}
+        ]
       },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.5,
-      "position": [
-        1424,
-        48
-      ],
-      "id": "d6d8c913-3f0b-48eb-9682-6094cd35ec95",
-      "name": "Quick Reading"
-    },
-    {
-      "parameters": {
-        "chatId": "={{$env.TELEGRAM_CHAT_ID}}",
-        "text": "={{ $json.finalMessage }}",
-        "additionalFields": {
-          "parse_mode": "Markdown"
-        }
+      "Already Sent Today?": {
+        "main": [
+          [
+            {
+              "node": "Skip: Already Sent Today",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "[GET] Fetch Random Quote",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "[GET] Fetch Jakarta's Weather",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       },
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
-      "position": [
-        1680,
-        -64
-      ],
-      "id": "bfa3f7b1-13d3-47e7-912f-02cba559d1d6",
-      "name": "Send Telegram Message",
-      "webhookId": "aed2e1b5-a1d8-4a85-8b31-dc6773a50028",
-      "credentials": {
-        "telegramApi": {
-          "id": "Hu9CqZPnrJLPbSoj",
-          "name": "Telegram account"
-        }
+      "Wait for Both Sources": {
+        "main": [
+          [
+            {
+              "node": "Build Briefing",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Briefing": {
+        "main": [
+          [
+            {
+              "node": "Send Telegram Message",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Send Telegram Message": {
+        "main": [
+          [
+            {
+              "node": "Log Briefing Sent",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "binaryMode": "separate",
+      "timeSavedMode": "fixed",
+      "callerPolicy": "workflowsFromSameOwner",
+      "availableInMCP": true,
+      "errorWorkflow": "ee61BHBuxOdl5UOD",
+      "timezone": "Asia/Jakarta",
+      "executionTimeout": 300
+    },
+    "staticData": {
+      "node:Trigger to run the workflow at 8 a.m.": {
+        "recurrenceRules": [
+          null
+        ],
+        "recurrenceRuleSignatures": [
+          null
+        ]
+      },
+      "node:Trigger at 8am": {
+        "recurrenceRules": [
+          null
+        ],
+        "recurrenceRuleSignatures": [
+          null
+        ]
+      },
+      "node:Schedule Trigger 8AM": {
+        "recurrenceRules": [
+          null
+        ],
+        "recurrenceRuleSignatures": [
+          null
+        ]
+      },
+      "node:Daily 08:00 WIB + Hourly Catch-up": {
+        "recurrenceRules": [
+          null,
+          null
+        ],
+        "recurrenceRuleSignatures": [
+          null,
+          null
+        ]
+      }
+    },
+    "meta": {
+      "templateCredsSetupCompleted": true,
+      "aiBuilderAssisted": true,
+      "builderVariant": "mcp"
+    },
+    "nodeGroups": [
+      {
+        "id": "63f89aed-eaf8-40d4-b9e1-e873f5e763fa",
+        "name": "Compose, deliver & log",
+        "nodeIds": [
+          "a5f9c10c-6753-412d-bcc6-9e3fd431bdd2",
+          "bfa3f7b1-13d3-47e7-912f-02cba559d1d6",
+          "272eed7e-fb3c-4bc9-8215-67024c1dd3c4"
+        ],
+        "description": "Validate + render HTML, send to Telegram, record in briefing_log"
+      }
+    ],
+    "pinData": {},
+    "versionId": "a645c6c7-4cfb-4705-9868-ed7fd332fa9f",
+    "activeVersionId": "a645c6c7-4cfb-4705-9868-ed7fd332fa9f",
+    "versionCounter": 244,
+    "triggerCount": 1,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "versionMetadata": {
+      "name": null,
+      "description": null
     }
-  ],
-  "pinData": {},
-  "connections": {
-    "Schedule Trigger 8AM": {
-      "main": [
-        [
-          {
-            "node": "[GET] Fetch Random Quote",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "[GET] Fetch Jakarta's Weather",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fallback Quote": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Merge": {
-      "main": [
-        [
-          {
-            "node": "Code in JavaScript",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code in JavaScript": {
-      "main": [
-        [
-          {
-            "node": "If",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Fallback Jakarta's Weather": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 1
-          }
-        ]
-      ]
-    },
-    "[GET] Fetch Random Quote": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Fallback Quote",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "[GET] Fetch Jakarta's Weather": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 1
-          }
-        ],
-        [
-          {
-            "node": "Fallback Jakarta's Weather",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "If": {
-      "main": [
-        [
-          {
-            "node": "Deep Reading",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Quick Reading",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Deep Reading": {
-      "main": [
-        [
-          {
-            "node": "Send Telegram Message",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Quick Reading": {
-      "main": [
-        [
-          {
-            "node": "Send Telegram Message",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    }
-  },
-  "active": true,
-  "settings": {
-    "executionOrder": "v1",
-    "binaryMode": "separate",
-    "timeSavedMode": "fixed",
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false,
-    "errorWorkflow": "ee61BHBuxOdl5UOD"
-  },
-  "versionId": "ece102d7-dd6c-422e-9261-6842299bc767",
-  "meta": {
-    "templateCredsSetupCompleted": true,
-    "instanceId": "ff9e0002d30cfc31e6c2d51c44a97d39fa09a3b4567619b78adf76e7f4ecfc3f"
-  },
-  "nodeGroups": [],
-  "id": "gDERYkGL9F978Jz2",
-  "tags": []
-}
+  }
+]
