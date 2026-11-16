@@ -1,6 +1,6 @@
 [
   {
-    "updatedAt": "2026-11-16T14:08:59.037Z",
+    "updatedAt": "2026-11-16T14:55:56.031Z",
     "createdAt": "2026-11-13T16:14:44.688Z",
     "id": "ee61BHBuxOdl5UOD",
     "name": "error-catcher",
@@ -21,15 +21,12 @@
       },
       {
         "parameters": {
-          "resource": "message",
-          "operation": "sendMessage",
           "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
           "text": "={{ $json.text }}",
-          "replyMarkup": "none",
           "additionalFields": {
             "appendAttribution": false,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": true
+            "disable_web_page_preview": true,
+            "parse_mode": "HTML"
           }
         },
         "type": "n8n-nodes-base.telegram",
@@ -41,18 +38,21 @@
         "id": "60ae3aeb-88ec-4a91-bab5-87596eb0195b",
         "name": "Send Telegram Alert",
         "webhookId": "c876b520-0cf2-4992-a799-ded9ecd60f93",
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 5000,
         "credentials": {
           "telegramApi": {
             "id": "Hu9CqZPnrJLPbSoj",
             "name": "Telegram account"
           }
         },
-        "onError": "continueRegularOutput",
-        "retryOnFail": true,
-        "maxTries": 3,
-        "waitBetweenTries": 5000
+        "onError": "continueRegularOutput"
       },
       {
+        "parameters": {
+          "jsCode": "// Format Alert — normalises both Error Trigger payload shapes (execution error vs trigger error)\n// into one record, and renders a Telegram-safe HTML alert.\nconst TZ = 'Asia/Jakarta';\nconst MAX_MSG = 500; // pre-escape limit; worst-case escaping keeps the alert under Telegram's 4096 chars\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst clip = (s, max) => {\n  const t = String(s ?? '').trim();\n  return t.length > max ? t.slice(0, max - 1) + '…' : t;\n};\n\nconst data = $input.first().json || {};\nconst wf = data.workflow || {};\nconst exec = data.execution || null;\nconst trig = data.trigger || null;\n\nconst isTriggerError = !exec && !!trig;\nconst err = (exec && exec.error) || (trig && trig.error) || {};\nconst message = clip(err.message || err.description || 'Unknown error (no message provided)', MAX_MSG);\nconst description = err.description && err.description !== err.message ? clip(err.description, 150) : '';\nconst failedNode = (exec && (exec.lastNodeExecuted || err.node?.name)) || err.node?.name || (isTriggerError ? 'Trigger' : 'unknown');\nconst errorType = err.name || (isTriggerError ? 'TriggerError' : 'ExecutionError');\nconst mode = (exec && exec.mode) || (trig && trig.mode) || 'unknown';\nconst executionId = exec && exec.id != null ? String(exec.id) : '';\nconst executionUrl = (exec && exec.url) || '';\nconst retryOf = exec && exec.retryOf ? String(exec.retryOf) : '';\n\nconst ts = err.timestamp ? DateTime.fromMillis(Number(err.timestamp)).setZone(TZ) : $now.setZone(TZ);\nconst when = (ts.isValid ? ts : $now.setZone(TZ)).toFormat('yyyy-MM-dd HH:mm:ss') + ' WIB';\n\nconst lines = [\n  `🚨 <b>WORKFLOW FAILED</b>${isTriggerError ? ' (trigger)' : ''}`,\n  '',\n  `<b>Workflow:</b> ${esc(wf.name || 'unknown')} <code>${esc(wf.id || '-')}</code>`,\n  `<b>Failed node:</b> ${esc(failedNode)}`,\n  `<b>Error:</b> ${esc(errorType)}`,\n  `<b>Message:</b> ${esc(message)}`,\n];\nif (description) lines.push(`<b>Details:</b> ${esc(description)}`);\nlines.push(`<b>Mode:</b> ${esc(mode)}`);\nlines.push(`<b>Time:</b> ${esc(when)}`);\nif (executionId) lines.push(`<b>Execution:</b> <code>${esc(executionId)}</code>${retryOf ? ` (retry of ${esc(retryOf)})` : ''}`);\nif (executionUrl) lines.push(`<a href=\"${esc(executionUrl)}\">Open execution</a>`);\n\nreturn [{\n  json: {\n    text: lines.join('\\n'),\n    occurred_at: (ts.isValid ? ts : $now).toISO(),\n    workflow_id: String(wf.id || ''),\n    workflow_name: String(wf.name || ''),\n    execution_id: executionId,\n    execution_url: executionUrl,\n    mode: String(mode),\n    failed_node: String(failedNode),\n    error_type: String(errorType),\n    error_message: message,\n  },\n}];\n"
+        },
         "id": "04e276f8-dc7b-4f01-9b05-fbb67ab86760",
         "name": "Format Alert",
         "type": "n8n-nodes-base.code",
@@ -60,29 +60,14 @@
         "position": [
           224,
           0
-        ],
-        "parameters": {
-          "mode": "runOnceForAllItems",
-          "jsCode": "// Format Alert — normalises both Error Trigger payload shapes (execution error vs trigger error)\n// into one record, and renders a Telegram-safe HTML alert.\nconst TZ = 'Asia/Jakarta';\nconst MAX_MSG = 500; // pre-escape limit; worst-case escaping keeps the alert under Telegram's 4096 chars\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;');\nconst clip = (s, max) => {\n  const t = String(s ?? '').trim();\n  return t.length > max ? t.slice(0, max - 1) + '…' : t;\n};\n\nconst data = $input.first().json || {};\nconst wf = data.workflow || {};\nconst exec = data.execution || null;\nconst trig = data.trigger || null;\n\nconst isTriggerError = !exec && !!trig;\nconst err = (exec && exec.error) || (trig && trig.error) || {};\nconst message = clip(err.message || err.description || 'Unknown error (no message provided)', MAX_MSG);\nconst description = err.description && err.description !== err.message ? clip(err.description, 150) : '';\nconst failedNode = (exec && (exec.lastNodeExecuted || err.node?.name)) || err.node?.name || (isTriggerError ? 'Trigger' : 'unknown');\nconst errorType = err.name || (isTriggerError ? 'TriggerError' : 'ExecutionError');\nconst mode = (exec && exec.mode) || (trig && trig.mode) || 'unknown';\nconst executionId = exec && exec.id != null ? String(exec.id) : '';\nconst executionUrl = (exec && exec.url) || '';\nconst retryOf = exec && exec.retryOf ? String(exec.retryOf) : '';\n\nconst ts = err.timestamp ? DateTime.fromMillis(Number(err.timestamp)).setZone(TZ) : $now.setZone(TZ);\nconst when = (ts.isValid ? ts : $now.setZone(TZ)).toFormat('yyyy-MM-dd HH:mm:ss') + ' WIB';\n\nconst lines = [\n  `🚨 <b>WORKFLOW FAILED</b>${isTriggerError ? ' (trigger)' : ''}`,\n  '',\n  `<b>Workflow:</b> ${esc(wf.name || 'unknown')} <code>${esc(wf.id || '-')}</code>`,\n  `<b>Failed node:</b> ${esc(failedNode)}`,\n  `<b>Error:</b> ${esc(errorType)}`,\n  `<b>Message:</b> ${esc(message)}`,\n];\nif (description) lines.push(`<b>Details:</b> ${esc(description)}`);\nlines.push(`<b>Mode:</b> ${esc(mode)}`);\nlines.push(`<b>Time:</b> ${esc(when)}`);\nif (executionId) lines.push(`<b>Execution:</b> <code>${esc(executionId)}</code>${retryOf ? ` (retry of ${esc(retryOf)})` : ''}`);\nif (executionUrl) lines.push(`<a href=\"${esc(executionUrl)}\">Open execution</a>`);\n\nreturn [{\n  json: {\n    text: lines.join('\\n'),\n    occurred_at: (ts.isValid ? ts : $now).toISO(),\n    workflow_id: String(wf.id || ''),\n    workflow_name: String(wf.name || ''),\n    execution_id: executionId,\n    execution_url: executionUrl,\n    mode: String(mode),\n    failed_node: String(failedNode),\n    error_type: String(errorType),\n    error_message: message,\n  },\n}];\n"
-        }
+        ]
       },
       {
-        "id": "abbc895e-26f6-48de-a485-436ef37b7219",
-        "name": "Log Error",
-        "type": "n8n-nodes-base.dataTable",
-        "typeVersion": 1.1,
-        "position": [
-          672,
-          0
-        ],
         "parameters": {
-          "resource": "row",
-          "operation": "insert",
           "dataTableId": {
             "__rl": true,
-            "mode": "id",
-            "value": "Md8fLK8gdD3f2L0u",
-            "cachedResultName": "error_log"
+            "mode": "name",
+            "value": "error_log"
           },
           "columns": {
             "mappingMode": "defineBelow",
@@ -107,7 +92,8 @@
                 "defaultMatch": false,
                 "display": true,
                 "type": "dateTime",
-                "canBeUsedToMatch": true
+                "readOnly": false,
+                "removed": false
               },
               {
                 "id": "workflow_id",
@@ -116,7 +102,8 @@
                 "defaultMatch": false,
                 "display": true,
                 "type": "string",
-                "canBeUsedToMatch": true
+                "readOnly": false,
+                "removed": false
               },
               {
                 "id": "workflow_name",
@@ -125,7 +112,8 @@
                 "defaultMatch": false,
                 "display": true,
                 "type": "string",
-                "canBeUsedToMatch": true
+                "readOnly": false,
+                "removed": false
               },
               {
                 "id": "execution_id",
@@ -134,7 +122,8 @@
                 "defaultMatch": false,
                 "display": true,
                 "type": "string",
-                "canBeUsedToMatch": true
+                "readOnly": false,
+                "removed": false
               },
               {
                 "id": "execution_url",
@@ -143,7 +132,8 @@
                 "defaultMatch": false,
                 "display": true,
                 "type": "string",
-                "canBeUsedToMatch": true
+                "readOnly": false,
+                "removed": false
               },
               {
                 "id": "mode",
@@ -152,7 +142,8 @@
                 "defaultMatch": false,
                 "display": true,
                 "type": "string",
-                "canBeUsedToMatch": true
+                "readOnly": false,
+                "removed": false
               },
               {
                 "id": "failed_node",
@@ -161,7 +152,8 @@
                 "defaultMatch": false,
                 "display": true,
                 "type": "string",
-                "canBeUsedToMatch": true
+                "readOnly": false,
+                "removed": false
               },
               {
                 "id": "error_type",
@@ -170,7 +162,8 @@
                 "defaultMatch": false,
                 "display": true,
                 "type": "string",
-                "canBeUsedToMatch": true
+                "readOnly": false,
+                "removed": false
               },
               {
                 "id": "error_message",
@@ -179,7 +172,8 @@
                 "defaultMatch": false,
                 "display": true,
                 "type": "string",
-                "canBeUsedToMatch": true
+                "readOnly": false,
+                "removed": false
               },
               {
                 "id": "alert_sent",
@@ -188,33 +182,36 @@
                 "defaultMatch": false,
                 "display": true,
                 "type": "boolean",
-                "canBeUsedToMatch": true
+                "readOnly": false,
+                "removed": false
               }
-            ]
+            ],
+            "attemptToConvertTypes": false,
+            "convertFieldsToString": false
           },
           "options": {}
         },
-        "notes": "Persistent record of every failure; works even when Telegram is down.",
-        "onError": "continueRegularOutput",
-        "retryOnFail": true,
-        "maxTries": 3,
-        "waitBetweenTries": 2000
-      },
-      {
-        "id": "01152978-c9ff-4308-8ffc-bc7365f586c6",
-        "name": "Alert Delivered?",
-        "type": "n8n-nodes-base.if",
-        "typeVersion": 2.2,
+        "id": "abbc895e-26f6-48de-a485-436ef37b7219",
+        "name": "Log Error",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
         "position": [
-          896,
+          672,
           0
         ],
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 2000,
+        "onError": "continueRegularOutput",
+        "notes": "Persistent record of every failure; works even when Telegram is down."
+      },
+      {
         "parameters": {
           "conditions": {
             "options": {
               "caseSensitive": true,
               "leftValue": "",
-              "typeValidation": "loose",
+              "typeValidation": "strict",
               "version": 2
             },
             "conditions": [
@@ -232,9 +229,18 @@
             "combinator": "and"
           },
           "options": {}
-        }
+        },
+        "id": "01152978-c9ff-4308-8ffc-bc7365f586c6",
+        "name": "Alert Delivered?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          896,
+          0
+        ]
       },
       {
+        "parameters": {},
         "id": "21e8c68c-736c-4e99-a206-b1eaf8e4661a",
         "name": "Done",
         "type": "n8n-nodes-base.noOp",
@@ -242,10 +248,12 @@
         "position": [
           1120,
           -112
-        ],
-        "parameters": {}
+        ]
       },
       {
+        "parameters": {
+          "errorMessage": "={{ 'Telegram alert could not be delivered for workflow \"' + $('Format Alert').first().json.workflow_name + '\" (execution ' + ($('Format Alert').first().json.execution_id || 'n/a, trigger error') + '). Error recorded in error_log.' }}"
+        },
         "id": "34c9f2f5-0b20-46ce-96a8-1d4d948768df",
         "name": "Fail: Alert Not Delivered",
         "type": "n8n-nodes-base.stopAndError",
@@ -253,10 +261,7 @@
         "position": [
           1120,
           96
-        ],
-        "parameters": {
-          "errorMessage": "={{ 'Telegram alert could not be delivered for workflow \"' + $('Format Alert').first().json.workflow_name + '\" (execution ' + ($('Format Alert').first().json.execution_id || 'n/a, trigger error') + '). Error recorded in error_log.' }}"
-        }
+        ]
       }
     ],
     "connections": {
@@ -339,15 +344,15 @@
     },
     "nodeGroups": [],
     "pinData": {},
-    "versionId": "ee0e309a-4930-4c3a-a5f6-99e1b7b5910b",
-    "activeVersionId": "ee0e309a-4930-4c3a-a5f6-99e1b7b5910b",
-    "versionCounter": 17,
+    "versionId": "2db32577-de67-4a36-9bed-c4ca1553bbd6",
+    "activeVersionId": "2db32577-de67-4a36-9bed-c4ca1553bbd6",
+    "versionCounter": 20,
     "triggerCount": 0,
     "sourceWorkflowId": null,
     "tags": [],
     "versionMetadata": {
-      "name": "Polish Stop-and-Error message for trigger errors",
-      "description": "Updated nodes: Fail: Alert Not Delivered"
+      "name": "Reference data table by name (portable)",
+      "description": "Log Error now references error_log by name instead of instance-specific ID."
     }
   }
 ]
