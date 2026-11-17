@@ -1,6 +1,6 @@
 [
   {
-    "updatedAt": "2026-11-16T15:50:23.276Z",
+    "updatedAt": "2026-11-17T15:34:27.010Z",
     "createdAt": "2026-11-10T16:02:19.990Z",
     "id": "gDERYkGL9F978Jz2",
     "name": "Send morning briefing to Telegram",
@@ -13,15 +13,13 @@
           "rule": {
             "interval": [
               {
-                "triggerAtHour": 8
-              },
-              {
                 "field": "cronExpression",
-                "expression": "0 9-20 * * *"
+                "expression": "0 8-20 * * *"
               }
             ]
           },
-          "misfirePolicy": "coalesce"
+          "misfirePolicy": "coalesce",
+          "notes": "One cron rule on purpose: misfire coalescing fires one catch-up per rule, so two rules caused two concurrent runs and a duplicate send."
         },
         "type": "n8n-nodes-base.scheduleTrigger",
         "typeVersion": 1.4,
@@ -382,6 +380,28 @@
         "maxTries": 3,
         "waitBetweenTries": 2000,
         "alwaysOutputData": true
+      },
+      {
+        "id": "c107a398-fbe9-43bc-acc4-f07a25423505",
+        "name": "Ping Healthchecks",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          1600,
+          32
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $('Load Settings').first().json.healthcheckPingUrl + ($execution.mode === 'production' ? '' : '/log') }}",
+          "options": {
+            "timeout": 10000
+          }
+        },
+        "notes": "Dead-man's switch: production sends ping the healthchecks.io check; manual runs hit /log so tests don't mark it healthy. URL lives in Automation Settings.",
+        "onError": "continueRegularOutput",
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 3000
       }
     ],
     "connections": {
@@ -497,6 +517,17 @@
             }
           ]
         ]
+      },
+      "Log Briefing Sent": {
+        "main": [
+          [
+            {
+              "node": "Ping Healthchecks",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
       }
     },
     "settings": {
@@ -536,11 +567,9 @@
       },
       "node:Daily 08:00 WIB + Hourly Catch-up": {
         "recurrenceRules": [
-          null,
           null
         ],
         "recurrenceRuleSignatures": [
-          null,
           null
         ]
       }
@@ -567,15 +596,16 @@
         "nodeIds": [
           "a5f9c10c-6753-412d-bcc6-9e3fd431bdd2",
           "bfa3f7b1-13d3-47e7-912f-02cba559d1d6",
-          "272eed7e-fb3c-4bc9-8215-67024c1dd3c4"
+          "272eed7e-fb3c-4bc9-8215-67024c1dd3c4",
+          "c107a398-fbe9-43bc-acc4-f07a25423505"
         ],
-        "description": "Validate + render HTML, send to Telegram, record in briefing_log"
+        "description": "Validate + render HTML, send to Telegram, record in briefing_log, then ping healthchecks.io (production only)"
       }
     ],
     "pinData": {},
-    "versionId": "3259b739-adb7-4a63-a73a-c3b2a034417f",
-    "activeVersionId": "3259b739-adb7-4a63-a73a-c3b2a034417f",
-    "versionCounter": 247,
+    "versionId": "b69162eb-1ee3-419e-b669-873c68ec6dab",
+    "activeVersionId": "b69162eb-1ee3-419e-b669-873c68ec6dab",
+    "versionCounter": 248,
     "triggerCount": 1,
     "sourceWorkflowId": null,
     "tags": [
@@ -599,8 +629,8 @@
       }
     ],
     "versionMetadata": {
-      "name": "Config from Automation Settings table; naming, tags, notes, groups",
-      "description": "Replace $env lookups (chat ID, endpoints) with a Load Settings data-table read so env access in nodes can be blocked. Review follow-ups: verb-first name, description, tags, Why Code note, settings/idempotency node group."
+      "name": "Single cron rule (fix duplicate catch-up); healthchecks.io ping",
+      "description": "Two schedule rules + misfirePolicy coalesce fired one catch-up per rule after downtime, so two concurrent runs both passed the idempotency check and sent twice (exec 96/97, 2026-11-17). Merged into one cron rule 0 8-20 * * *. Added Ping Healthchecks after a logged send: production pings the check, manual runs hit /log (event only, no status change)."
     }
   }
 ]
