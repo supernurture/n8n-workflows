@@ -1,0 +1,435 @@
+[
+  {
+    "updatedAt": "2026-11-18T19:07:29.221Z",
+    "createdAt": "2026-11-18T19:07:14.218Z",
+    "id": "DNlTubrQzS7pSz5E",
+    "name": "Reply to customers on Telegram",
+    "description": "Receives customer messages from the Telegram CS bot and sends back the CS agent's reply. Keeps Telegram handling separate so other channels can reuse the same agent.",
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "id": "78064d64-b601-491f-a8b4-8fe2093b73b9",
+        "name": "Telegram Trigger",
+        "type": "n8n-nodes-base.telegramTrigger",
+        "typeVersion": 1.5,
+        "position": [
+          0,
+          192
+        ],
+        "parameters": {
+          "updates": [
+            "message"
+          ],
+          "additionalFields": {}
+        },
+        "credentials": {
+          "telegramApi": {
+            "id": "tgbcAmxqaWPvfvo7",
+            "name": "Telegram CS Bot"
+          }
+        },
+        "webhookId": "26628c82-8953-441b-9869-6a93fda6d955"
+      },
+      {
+        "id": "fccd371e-e97d-4c17-9882-b71da6725a4d",
+        "name": "Route customer message",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 3.2,
+        "position": [
+          224,
+          192
+        ],
+        "parameters": {
+          "rules": {
+            "values": [
+              {
+                "renameOutput": true,
+                "outputKey": "Text message",
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict"
+                  },
+                  "combinator": "and",
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.message?.chat?.type === \"private\" && $json.message?.from?.is_bot !== true && typeof $json.message?.text === \"string\" && $json.message.text.trim().length > 0 && $json.message.text.length <= 2000 }}",
+                      "rightValue": "",
+                      "operator": {
+                        "type": "boolean",
+                        "operation": "true",
+                        "singleValue": true
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "renameOutput": true,
+                "outputKey": "Unsupported message",
+                "conditions": {
+                  "options": {
+                    "caseSensitive": true,
+                    "leftValue": "",
+                    "typeValidation": "strict"
+                  },
+                  "combinator": "and",
+                  "conditions": [
+                    {
+                      "leftValue": "={{ $json.message?.chat?.type === \"private\" && $json.message?.from?.is_bot !== true }}",
+                      "rightValue": "",
+                      "operator": {
+                        "type": "boolean",
+                        "operation": "true",
+                        "singleValue": true
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "notes": "Only private chats from people are answered. Group messages are ignored so bookings stay private."
+      },
+      {
+        "id": "2fcdeb8c-ea3e-40c1-a29b-2a34a83f5a46",
+        "name": "Show typing indicator",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          448,
+          96
+        ],
+        "parameters": {
+          "resource": "message",
+          "operation": "sendChatAction",
+          "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+          "action": "typing"
+        },
+        "credentials": {
+          "telegramApi": {
+            "id": "tgbcAmxqaWPvfvo7",
+            "name": "Telegram CS Bot"
+          }
+        },
+        "notes": "Cosmetic only, so a failure here never blocks the answer.",
+        "onError": "continueRegularOutput",
+        "webhookId": "8876bcb6-76db-482f-8df3-8e2fe2503b91"
+      },
+      {
+        "id": "5f95c519-e8d4-42c8-bec5-2c6a336cbc74",
+        "name": "Ask CS agent",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.4,
+        "position": [
+          672,
+          96
+        ],
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "NaUdh56QjBhAyFZP"
+          },
+          "mode": "once",
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "chatInput": "={{ $(\"Telegram Trigger\").first().json.message.text.trim() === \"/start\" ? \"Halo\" : $(\"Telegram Trigger\").first().json.message.text.trim() }}",
+              "sessionId": "=telegram:{{ $(\"Telegram Trigger\").first().json.message.from.id }}",
+              "customerId": "=telegram:{{ $(\"Telegram Trigger\").first().json.message.from.id }}",
+              "customerName": "={{ [$(\"Telegram Trigger\").first().json.message.from.first_name, $(\"Telegram Trigger\").first().json.message.from.last_name].filter(Boolean).join(\" \") }}",
+              "channel": "telegram"
+            },
+            "schema": [
+              {
+                "id": "chatInput",
+                "displayName": "chatInput",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "sessionId",
+                "displayName": "sessionId",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "customerId",
+                "displayName": "customerId",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "customerName",
+                "displayName": "customerName",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "channel",
+                "displayName": "channel",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ]
+          },
+          "options": {
+            "waitForSubWorkflow": true
+          }
+        },
+        "notes": "Customer identity comes from the Telegram user ID, which the customer cannot change in chat.",
+        "onError": "continueErrorOutput"
+      },
+      {
+        "id": "8169a31d-49cf-4b78-82e8-2c4857f5d18e",
+        "name": "Send reply to customer",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          1056,
+          0
+        ],
+        "parameters": {
+          "resource": "message",
+          "operation": "sendMessage",
+          "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+          "text": "={{ String($json.reply || \"Maaf, kami belum bisa menjawab saat ini. Silakan coba lagi sebentar lagi.\").slice(0, 3500).replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\") }}",
+          "additionalFields": {
+            "appendAttribution": false,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": true
+          }
+        },
+        "credentials": {
+          "telegramApi": {
+            "id": "tgbcAmxqaWPvfvo7",
+            "name": "Telegram CS Bot"
+          }
+        },
+        "notes": "Escapes HTML and trims to fit the Telegram message limit.",
+        "retryOnFail": true,
+        "webhookId": "4f008a2d-90f3-4010-96e6-e2a8575f373e"
+      },
+      {
+        "id": "26267b87-d55d-4cfa-b743-cd825c3dcdb6",
+        "name": "Ask customer to send text",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          448,
+          288
+        ],
+        "parameters": {
+          "resource": "message",
+          "operation": "sendMessage",
+          "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+          "text": "Maaf, saat ini kami hanya bisa membaca pesan teks hingga 2000 karakter. Silakan tulis pertanyaan Anda dalam bentuk teks ya.",
+          "additionalFields": {
+            "appendAttribution": false,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": true
+          }
+        },
+        "credentials": {
+          "telegramApi": {
+            "id": "tgbcAmxqaWPvfvo7",
+            "name": "Telegram CS Bot"
+          }
+        },
+        "retryOnFail": true,
+        "webhookId": "b73e52d3-688d-46a2-a5a3-29bce4bedc15"
+      },
+      {
+        "id": "5a98cd6d-77be-4da5-8f68-3ceb2532275c",
+        "name": "Apologize to customer",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          944,
+          320
+        ],
+        "parameters": {
+          "resource": "message",
+          "operation": "sendMessage",
+          "chatId": "={{ $('Telegram Trigger').first().json.message.chat.id }}",
+          "text": "Maaf, sistem kami sedang mengalami kendala. Silakan coba lagi beberapa saat lagi.",
+          "additionalFields": {
+            "appendAttribution": false,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": true
+          }
+        },
+        "credentials": {
+          "telegramApi": {
+            "id": "tgbcAmxqaWPvfvo7",
+            "name": "Telegram CS Bot"
+          }
+        },
+        "notes": "Continues on failure so the error is still raised to the error workflow.",
+        "retryOnFail": true,
+        "onError": "continueRegularOutput",
+        "webhookId": "bcdcea67-795e-4627-94a0-8557796ef21b"
+      },
+      {
+        "id": "9ec9a977-0053-4bf5-9c37-91c70b18586b",
+        "name": "Raise CS agent failure",
+        "type": "n8n-nodes-base.stopAndError",
+        "typeVersion": 1,
+        "position": [
+          1168,
+          320
+        ],
+        "parameters": {
+          "errorType": "errorMessage",
+          "errorMessage": "CS agent could not answer a Telegram message. The customer received an apology."
+        },
+        "notes": "Fails the run on purpose so Alert on workflow failures is triggered."
+      }
+    ],
+    "connections": {
+      "Telegram Trigger": {
+        "main": [
+          [
+            {
+              "node": "Route customer message",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Route customer message": {
+        "main": [
+          [
+            {
+              "node": "Show typing indicator",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Ask customer to send text",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Show typing indicator": {
+        "main": [
+          [
+            {
+              "node": "Ask CS agent",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Ask CS agent": {
+        "main": [
+          [
+            {
+              "node": "Send reply to customer",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Apologize to customer",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Apologize to customer": {
+        "main": [
+          [
+            {
+              "node": "Raise CS agent failure",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "availableInMCP": true,
+      "errorWorkflow": "ee61BHBuxOdl5UOD",
+      "timezone": "Asia/Jakarta",
+      "executionTimeout": 180
+    },
+    "staticData": null,
+    "meta": {
+      "aiBuilderAssisted": true,
+      "builderVariant": "mcp"
+    },
+    "nodeGroups": [
+      {
+        "id": "5008fd1c-6af9-42dc-9df2-03ac6cad5399",
+        "name": "Handle agent failure",
+        "nodeIds": [
+          "5a98cd6d-77be-4da5-8f68-3ceb2532275c",
+          "9ec9a977-0053-4bf5-9c37-91c70b18586b"
+        ],
+        "description": "Tells the customer something went wrong, then raises the error for the failure alert."
+      }
+    ],
+    "pinData": null,
+    "versionId": "2d1e9114-3033-4073-a0a0-15c0315f9cca",
+    "activeVersionId": "2d1e9114-3033-4073-a0a0-15c0315f9cca",
+    "versionCounter": 2,
+    "triggerCount": 1,
+    "sourceWorkflowId": null,
+    "tags": [
+      {
+        "updatedAt": "2026-11-17T17:18:08.438Z",
+        "createdAt": "2026-11-17T17:18:08.438Z",
+        "id": "15wUhkXrSN3ux5hc",
+        "name": "customer-service"
+      },
+      {
+        "updatedAt": "2026-11-16T15:50:23.261Z",
+        "createdAt": "2026-11-16T15:50:23.261Z",
+        "id": "ckSoRolTcFg1s9Oo",
+        "name": "telegram"
+      },
+      {
+        "updatedAt": "2026-11-18T19:07:29.205Z",
+        "createdAt": "2026-11-18T19:07:29.205Z",
+        "id": "sdXtZshAejZYvQkp",
+        "name": "chatbot"
+      }
+    ],
+    "versionMetadata": {
+      "name": "Use CS bot credential and set error workflow",
+      "description": "Updated nodes: Telegram Trigger, Show typing indicator, Send reply to customer, Ask customer to send text, Apologize to customer"
+    }
+  }
+]
