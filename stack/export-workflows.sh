@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Export the live n8n workflows into this folder as commit-safe JSON.
+# Export the live n8n workflows into ./workflows as commit-safe JSON.
 #
 #   ./export-workflows.sh
 #
@@ -11,7 +11,7 @@
 #   3. Scans the result for personal data and secrets (emails, Telegram bot tokens,
 #      private keys, plus any extra patterns listed in .export-denylist) and aborts
 #      WITHOUT touching the existing files if anything is found.
-#   4. Only then replaces the JSON files in this folder.
+#   4. Only then replaces the JSON files in ./workflows.
 #
 # Add more workflows by extending WORKFLOWS ("<workflow id>:<file name>").
 # Optional: put one extended-regex per line in .export-denylist (gitignored) for values
@@ -24,7 +24,12 @@ CONTAINER="${CONTAINER:-n8n}"
 WORKFLOWS=(
   "gDERYkGL9F978Jz2:smart-morning-briefing.json"
   "ee61BHBuxOdl5UOD:error-catcher.json"
+  "DNlTubrQzS7pSz5E:cs-reply-on-telegram.json"
+  "NaUdh56QjBhAyFZP:cs-agent.json"
+  "l1d6N8glCdfZQb6g:cs-manage-reservations.json"
+  "ij2gitDtWDyN5JUT:cs-escalate-to-human.json"
 )
+OUT_DIR="workflows"
 # Top-level keys removed from every exported workflow.
 STRIP_KEYS="${STRIP_KEYS-shared}"
 
@@ -85,13 +90,14 @@ fi
 echo "  clean"
 
 echo "[4/4] Writing files..."
+mkdir -p "$OUT_DIR"
 for entry in "${WORKFLOWS[@]}"; do
   file="${entry#*:}"
-  if [ -f "$file" ] && cmp -s "$STAGE/$file" "$file"; then
+  if [ -f "$OUT_DIR/$file" ] && cmp -s "$STAGE/$file" "$OUT_DIR/$file"; then
     echo "  $file: unchanged"
   else
-    cp "$STAGE/$file" "$file"
+    cp "$STAGE/$file" "$OUT_DIR/$file"
     echo "  $file: updated"
   fi
 done
-echo "Done. Review with: git diff -- $(printf '%s ' "${WORKFLOWS[@]#*:}")"
+echo "Done. Review with: git diff -- $OUT_DIR/"

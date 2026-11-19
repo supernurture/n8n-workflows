@@ -1,0 +1,298 @@
+[
+  {
+    "updatedAt": "2026-11-18T19:02:21.245Z",
+    "createdAt": "2026-11-18T19:02:14.393Z",
+    "id": "ij2gitDtWDyN5JUT",
+    "name": "Escalate customer to human",
+    "description": "Logs a customer's request for human help and notifies the admin on Telegram. Gives the CS agent a safe exit whenever it cannot answer; returns {ok, message}.",
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "id": "06aafd71-d3dd-45fa-813a-f0137ef212ac",
+        "name": "When called by CS agent",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.3,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              {
+                "name": "customerId",
+                "type": "string"
+              },
+              {
+                "name": "customerName",
+                "type": "string"
+              },
+              {
+                "name": "channel",
+                "type": "string"
+              },
+              {
+                "name": "summary",
+                "type": "string"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "dfe1eef7-53b4-4add-a87e-3edcbf786456",
+        "name": "Load Settings",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          224,
+          0
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "get",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "Automation Settings"
+          },
+          "returnAll": false,
+          "limit": 1
+        },
+        "notes": "Admin chat ID comes from Automation Settings.",
+        "executeOnce": true,
+        "retryOnFail": true
+      },
+      {
+        "id": "374a0c4d-23b9-4347-879a-6e0e9de7653e",
+        "name": "Log handoff request",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          448,
+          0
+        ],
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "cs_handoff_log"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "customerId": "={{ $('When called by CS agent').first().json.customerId }}",
+              "customerName": "={{ $('When called by CS agent').first().json.customerName }}",
+              "channel": "={{ $('When called by CS agent').first().json.channel }}",
+              "summary": "={{ $('When called by CS agent').first().json.summary }}",
+              "status": "open"
+            },
+            "schema": [
+              {
+                "id": "customerId",
+                "displayName": "customerId",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "customerName",
+                "displayName": "customerName",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "channel",
+                "displayName": "channel",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "summary",
+                "displayName": "summary",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              },
+              {
+                "id": "status",
+                "displayName": "status",
+                "required": false,
+                "defaultMatch": false,
+                "display": true,
+                "type": "string",
+                "canBeUsedToMatch": true
+              }
+            ]
+          }
+        },
+        "notes": "Keeps a record even if the admin notification fails.",
+        "retryOnFail": true
+      },
+      {
+        "id": "ac6e6d7b-c416-4c8e-a806-c51b0162d031",
+        "name": "Notify admin of handoff",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          672,
+          0
+        ],
+        "parameters": {
+          "resource": "message",
+          "operation": "sendMessage",
+          "chatId": "={{ $('Load Settings').first().json.csAdminChatId }}",
+          "text": "=<b>🙋 Customer butuh bantuan admin</b>\nCustomer: {{ String($(\"When called by CS agent\").first().json.customerName ?? \"-\").replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\") }}\nChannel: {{ String($(\"When called by CS agent\").first().json.channel ?? \"-\").replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\") }}\nRingkasan: {{ String($(\"When called by CS agent\").first().json.summary ?? \"-\").replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\") }}",
+          "additionalFields": {
+            "appendAttribution": false,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": true
+          }
+        },
+        "credentials": {
+          "telegramApi": {
+            "id": "tgbcAmxqaWPvfvo7",
+            "name": "Telegram CS Bot"
+          }
+        },
+        "notes": "Customer text is HTML-escaped. A failed send is reported back to the agent instead of stopping the chat.",
+        "retryOnFail": true,
+        "onError": "continueRegularOutput",
+        "webhookId": "f3b7d66b-a433-46de-9266-20328fcc9f22"
+      },
+      {
+        "id": "13c15857-5afe-4814-9bb5-154136748a5e",
+        "name": "Return result",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          896,
+          0
+        ],
+        "parameters": {
+          "mode": "manual",
+          "includeOtherFields": false,
+          "assignments": {
+            "assignments": [
+              {
+                "id": "ok",
+                "name": "ok",
+                "type": "boolean",
+                "value": "={{ $json.ok === true }}"
+              },
+              {
+                "id": "message",
+                "name": "message",
+                "type": "string",
+                "value": "={{ $json.ok === true ? \"Permintaan sudah diteruskan ke admin.\" : \"Permintaan sudah dicatat, tetapi notifikasi ke admin gagal. Arahkan customer ke kontak resmi bisnis.\" }}"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "connections": {
+      "When called by CS agent": {
+        "main": [
+          [
+            {
+              "node": "Load Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Load Settings": {
+        "main": [
+          [
+            {
+              "node": "Log handoff request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Log handoff request": {
+        "main": [
+          [
+            {
+              "node": "Notify admin of handoff",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Notify admin of handoff": {
+        "main": [
+          [
+            {
+              "node": "Return result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "availableInMCP": true,
+      "errorWorkflow": "ee61BHBuxOdl5UOD",
+      "timezone": "Asia/Jakarta",
+      "callerPolicy": "workflowsFromSameOwner"
+    },
+    "staticData": null,
+    "meta": {
+      "aiBuilderAssisted": true,
+      "builderVariant": "mcp"
+    },
+    "nodeGroups": [],
+    "pinData": null,
+    "versionId": "290761a7-bbfd-4ccd-9ab1-6cfeb748d1f9",
+    "activeVersionId": "290761a7-bbfd-4ccd-9ab1-6cfeb748d1f9",
+    "versionCounter": 2,
+    "triggerCount": 0,
+    "sourceWorkflowId": null,
+    "tags": [
+      {
+        "updatedAt": "2026-11-17T17:18:08.438Z",
+        "createdAt": "2026-11-17T17:18:08.438Z",
+        "id": "15wUhkXrSN3ux5hc",
+        "name": "customer-service"
+      },
+      {
+        "updatedAt": "2026-11-17T17:18:08.436Z",
+        "createdAt": "2026-11-17T17:18:08.436Z",
+        "id": "AsHbGF6wfVVQekHX",
+        "name": "tool"
+      },
+      {
+        "updatedAt": "2026-11-17T17:18:08.425Z",
+        "createdAt": "2026-11-17T17:18:08.425Z",
+        "id": "z8TnhSlVVuhWWgpn",
+        "name": "subworkflow"
+      }
+    ],
+    "versionMetadata": {
+      "name": "Set CS bot credential, error workflow and tags",
+      "description": "Updated nodes: Notify admin of handoff"
+    }
+  }
+]
